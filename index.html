@@ -1,3 +1,4 @@
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ぬけ!ざっそう 3D</title>
 <style>
   :root {
@@ -266,7 +267,7 @@
 <button class="reset-link" id="resetBtn">さいしょから</button>
 <div class="levelup-banner" id="levelupBanner"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 (() => {
   const STORAGE_KEY = 'zassou-game-save-v2';
@@ -285,11 +286,12 @@
     { level: 3, needPoints: 130 },
   ];
 
-  const BOUNDS = 5.2;
+  const BOUNDS = 6.4;
   const EYE_HEIGHT = 1.6;
-  const MOVE_SPEED = 3.4;
-  const LOOK_SENS = 0.0032;
-  const INTERACT_DISTANCE = 3.4;
+  const MOVE_SPEED = 3.6;
+  const LOOK_SENS = 0.0042;
+  const INTERACT_DISTANCE = 4.6;
+  const INTERACT_CLOSE_DISTANCE = 1.5;
 
   // ---------- state ----------
   function loadPoints() {
@@ -382,38 +384,172 @@
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // decorative grass tufts (instanced, non-interactive)
-  {
-    const tuftGeo = new THREE.ConeGeometry(0.05, 0.22, 5);
-    const tuftMat = new THREE.MeshStandardMaterial({ color: 0x4f7a3a, roughness: 1 });
-    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, 90);
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < 90; i++) {
-      const r = 3 + Math.random() * 8.5;
-      const a = Math.random() * Math.PI * 2;
-      dummy.position.set(Math.cos(a) * r, 0.11, Math.sin(a) * r);
-      dummy.rotation.y = Math.random() * Math.PI;
-      dummy.updateMatrix();
-      tufts.setMatrixAt(i, dummy.matrix);
-    }
-    scene.add(tufts);
+  function jitterColor(hex, hueJitter, lightJitter) {
+    const c = new THREE.Color(hex);
+    c.offsetHSL((Math.random() - 0.5) * 2 * hueJitter, 0, (Math.random() - 0.5) * 2 * lightJitter);
+    return c;
   }
 
-  // border trees for framing
+  // decorative grass tufts (instanced, non-interactive) - a couple of hue
+  // batches instead of per-instance vertex colors, which don't render
+  // reliably on every GPU/software renderer combination.
+  {
+    const tuftGeo = new THREE.ConeGeometry(0.05, 0.22, 5);
+    const hues = [0x4f7a3a, 0x6a994e, 0x3f6b32];
+    const perBatch = 90;
+    for (const hue of hues) {
+      const tuftMat = new THREE.MeshStandardMaterial({ color: hue, roughness: 1 });
+      const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, perBatch);
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < perBatch; i++) {
+        const r = 1.8 + Math.random() * (BOUNDS + 3);
+        const a = Math.random() * Math.PI * 2;
+        dummy.position.set(Math.cos(a) * r, 0.11, Math.sin(a) * r);
+        dummy.rotation.y = Math.random() * Math.PI;
+        const s = 0.7 + Math.random() * 0.8;
+        dummy.scale.set(s, s, s);
+        dummy.updateMatrix();
+        tufts.setMatrixAt(i, dummy.matrix);
+      }
+      tufts.instanceMatrix.needsUpdate = true;
+      scene.add(tufts);
+    }
+  }
+
+  // rocks scattered around the outskirts (instanced, non-interactive)
+  {
+    const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x9a978c, roughness: 1, flatShading: true });
+    const count = 24;
+    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, count);
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < count; i++) {
+      const r = BOUNDS + 0.6 + Math.random() * 3;
+      const a = Math.random() * Math.PI * 2;
+      const s = 0.14 + Math.random() * 0.26;
+      dummy.position.set(Math.cos(a) * r, s * 0.55, Math.sin(a) * r);
+      dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      dummy.scale.set(s, s, s);
+      dummy.updateMatrix();
+      rocks.setMatrixAt(i, dummy.matrix);
+    }
+    scene.add(rocks);
+  }
+
+  // soft ground patches for texture variety (non-interactive)
+  {
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x5a7a3f, roughness: 1, transparent: true, opacity: 0.5 });
+    for (let i = 0; i < 14; i++) {
+      const patch = new THREE.Mesh(new THREE.CircleGeometry(0.8 + Math.random() * 1.3, 12), baseMat.clone());
+      patch.material.color.offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.1);
+      patch.rotation.x = -Math.PI / 2;
+      patch.position.y = 0.005;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * (BOUNDS - 0.3);
+      patch.position.set(Math.cos(a) * r, 0.005, Math.sin(a) * r);
+      scene.add(patch);
+    }
+  }
+
+  function buildFlowerMesh(petalHex, coreHex, sizeScale) {
+    const group = new THREE.Group();
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x4c9a2a, roughness: 0.9 });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.55 * sizeScale, 6), stemMat);
+    stem.position.y = 0.275 * sizeScale;
+    group.add(stem);
+    const petalMat = new THREE.MeshStandardMaterial({ color: petalHex, roughness: 0.6 });
+    const petals = 5;
+    for (let i = 0; i < petals; i++) {
+      const petal = new THREE.Mesh(new THREE.SphereGeometry(0.11 * sizeScale, 8, 6), petalMat);
+      const a = (i / petals) * Math.PI * 2;
+      petal.position.set(Math.cos(a) * 0.13 * sizeScale, 0.6 * sizeScale, Math.sin(a) * 0.13 * sizeScale);
+      petal.scale.set(1, 0.55, 1);
+      group.add(petal);
+    }
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.09 * sizeScale, 8, 6), new THREE.MeshStandardMaterial({ color: coreHex, roughness: 0.6 }));
+    core.position.y = 0.6 * sizeScale;
+    group.add(core);
+    return group;
+  }
+
+  function buildBush(x, z) {
+    const mat = new THREE.MeshStandardMaterial({ color: jitterColor(0x386641, 0.03, 0.08), roughness: 0.9 });
+    const group = new THREE.Group();
+    const count = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const r = 0.22 + Math.random() * 0.18;
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);
+      ball.position.set((Math.random() - 0.5) * 0.32, r * 0.75, (Math.random() - 0.5) * 0.32);
+      group.add(ball);
+    }
+    group.position.set(x, 0, z);
+    scene.add(group);
+  }
+
+  function buildCloud() {
+    const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.92 });
+    const puffs = 4 + Math.floor(Math.random() * 3);
+    for (let j = 0; j < puffs; j++) {
+      const r = 0.6 + Math.random() * 0.5;
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat);
+      puff.position.set((Math.random() - 0.5) * 2.4, (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 1.2);
+      puff.scale.y = 0.55;
+      group.add(puff);
+    }
+    const a = Math.random() * Math.PI * 2;
+    const r = 11 + Math.random() * 8;
+    group.position.set(Math.cos(a) * r, 6 + Math.random() * 2.5, Math.sin(a) * r);
+    scene.add(group);
+  }
+
+  // picket fence ring framing the playable garden
+  {
+    const radius = BOUNDS + 0.35;
+    const postGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.5, 6);
+    const postMat = new THREE.MeshStandardMaterial({ color: 0xd9b384, roughness: 0.9 });
+    const spacing = 0.45;
+    const count = Math.floor((2 * Math.PI * radius) / spacing);
+    const posts = new THREE.InstancedMesh(postGeo, postMat, count);
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      dummy.position.set(Math.cos(a) * radius, 0.25, Math.sin(a) * radius);
+      dummy.rotation.y = a;
+      dummy.updateMatrix();
+      posts.setMatrixAt(i, dummy.matrix);
+    }
+    scene.add(posts);
+  }
+
+  // border trees, bushes and decorative flower beds for framing (non-interactive)
   {
     const trunkGeo = new THREE.CylinderGeometry(0.14, 0.18, 1.2, 7);
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a34, roughness: 1 });
     const leafGeo = new THREE.SphereGeometry(0.85, 8, 6);
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x386641, roughness: 0.9 });
-    const treeSpots = [[-7.5, -7], [7.5, -6.5], [-7, 7.5], [7.8, 7]];
+    const treeSpots = [[-8.4, -7.8], [8.6, -7.2], [-8, 8.4], [8.8, 7.8], [0, -9.2], [-9.4, 0.6]];
     for (const [x, z] of treeSpots) {
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat.clone());
       trunk.position.set(x, 0.6, z);
       scene.add(trunk);
-      const leaf = new THREE.Mesh(leafGeo, leafMat);
+      const leaf = new THREE.Mesh(leafGeo, leafMat.clone());
+      leaf.scale.setScalar(0.85 + Math.random() * 0.3);
       leaf.position.set(x, 1.5, z);
       scene.add(leaf);
+      buildBush(x + (Math.random() - 0.5) * 1.6, z + (Math.random() - 0.5) * 1.6);
     }
+
+    const decoFlowerHues = [0xffb703, 0x9d4edd, 0xf1faee, 0x4895ef];
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = BOUNDS + 0.9 + Math.random() * 2.2;
+      const flower = buildFlowerMesh(decoFlowerHues[i % decoFlowerHues.length], 0xffd166, 0.85 + Math.random() * 0.4);
+      flower.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+      scene.add(flower);
+    }
+
+    for (let i = 0; i < 7; i++) buildCloud();
   }
 
   function makeTextSprite(text, { size = 64, color = '#283618', bg = null } = {}) {
@@ -431,19 +567,55 @@
     return new THREE.Sprite(mat);
   }
 
-  function buildWeedPlot(tierIndex) {
-    const tier = WEED_TIERS[tierIndex];
-    const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: tier.color, roughness: 0.85 });
-    const clumps = tierIndex === 0 ? 1 : tierIndex === 1 ? 3 : 5;
-    for (let i = 0; i < clumps; i++) {
-      const h = tier.size * (0.7 + Math.random() * 0.5);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(tier.size * 0.28, h, 6), mat);
-      const off = clumps === 1 ? 0 : tier.size * 0.22;
+  function addTuftSpecies(group, mat, count, size) {
+    for (let i = 0; i < count; i++) {
+      const h = size * (0.7 + Math.random() * 0.5);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(size * 0.28, h, 6), mat);
+      const off = count === 1 ? 0 : size * 0.24;
       cone.position.set((Math.random() - 0.5) * off, h / 2, (Math.random() - 0.5) * off);
       cone.rotation.y = Math.random() * Math.PI;
       group.add(cone);
     }
+  }
+
+  function addBladeSpecies(group, mat, count, size) {
+    const n = Math.max(4, count + 2);
+    for (let i = 0; i < n; i++) {
+      const h = size * (1.0 + Math.random() * 0.5);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(size * 0.1, h, 0.02), mat);
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = size * 0.14;
+      blade.position.set(Math.cos(a) * dist, h / 2, Math.sin(a) * dist);
+      blade.rotation.y = a;
+      blade.rotation.z = (Math.random() - 0.5) * 0.5;
+      group.add(blade);
+    }
+  }
+
+  function addBushySpecies(group, mat, count, size) {
+    const n = Math.max(3, count);
+    for (let i = 0; i < n; i++) {
+      const r = size * (0.3 + Math.random() * 0.2);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);
+      const a = Math.random() * Math.PI * 2;
+      const dist = n === 1 ? 0 : size * 0.22 * Math.random();
+      ball.position.set(Math.cos(a) * dist, r * 0.85, Math.sin(a) * dist);
+      group.add(ball);
+    }
+  }
+
+  const WEED_SPECIES = [addTuftSpecies, addBladeSpecies, addBushySpecies];
+
+  function buildWeedPlot(tierIndex) {
+    const tier = WEED_TIERS[tierIndex];
+    const group = new THREE.Group();
+    const color = jitterColor(tier.color, 0.035, 0.07);
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
+    const baseCount = tierIndex === 0 ? 1 : tierIndex === 1 ? 3 : 5;
+    const species = WEED_SPECIES[Math.floor(Math.random() * WEED_SPECIES.length)];
+    species(group, mat, baseCount, tier.size);
+    const scaleJitter = 0.85 + Math.random() * 0.3;
+    group.scale.setScalar(scaleJitter);
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(tier.size * 0.55, tier.size * 0.7, 20),
@@ -452,36 +624,22 @@
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.02;
     ring.visible = false;
+    ring.scale.setScalar(1 / scaleJitter);
     group.add(ring);
 
     const lock = makeTextSprite('🔒', { size: 48, bg: 'rgba(20,20,20,0.55)' });
-    lock.scale.set(0.4, 0.4, 0.4);
-    lock.position.set(0, tier.size + 0.35, 0);
+    lock.scale.set(0.4 / scaleJitter, 0.4 / scaleJitter, 0.4 / scaleJitter);
+    lock.position.set(0, (tier.size + 0.35) / scaleJitter, 0);
     lock.visible = false;
     group.add(lock);
 
-    group.userData = { kind: 'weed', tierIndex, locked: false, ring, lockSprite: lock, plantMat: mat, baseColor: tier.color };
+    group.userData = { kind: 'weed', tierIndex, locked: false, ring, lockSprite: lock, plantMat: mat, baseColor: color.getHex() };
     return group;
   }
 
   function buildForbiddenPlot() {
-    const group = new THREE.Group();
-    const stemMat = new THREE.MeshStandardMaterial({ color: FORBIDDEN.stemColor, roughness: 0.9 });
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.55, 6), stemMat);
-    stem.position.y = 0.275;
-    group.add(stem);
-
-    const petalMat = new THREE.MeshStandardMaterial({ color: FORBIDDEN.petalColor, roughness: 0.6 });
-    for (let i = 0; i < 5; i++) {
-      const petal = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), petalMat);
-      const a = (i / 5) * Math.PI * 2;
-      petal.position.set(Math.cos(a) * 0.13, 0.6, Math.sin(a) * 0.13);
-      petal.scale.set(1, 0.55, 1);
-      group.add(petal);
-    }
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.6 }));
-    core.position.y = 0.6;
-    group.add(core);
+    const petalHex = jitterColor(FORBIDDEN.petalColor, 0.02, 0.08).getHex();
+    const group = buildFlowerMesh(petalHex, 0xffd166, 0.9 + Math.random() * 0.3);
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.32, 0.4, 20),
@@ -523,8 +681,8 @@
     els.newFieldBtn.hidden = true;
 
     const maxUnlockedTier = WEED_TIERS.reduce((acc, t, i) => (t.unlockLevel <= level ? i : acc), 0);
-    const total = 11;
-    const forbiddenCount = 3;
+    const total = 14;
+    const forbiddenCount = 4;
     const specs = [];
     for (let i = 0; i < forbiddenCount; i++) specs.push({ kind: 'forbidden' });
     for (let i = forbiddenCount; i < total; i++) specs.push({ kind: 'weed', tierIndex: pickWeedTierIndex(maxUnlockedTier) });
@@ -621,15 +779,15 @@
   canvas.addEventListener('pointerdown', (e) => {
     looking = true;
     lastLookX = e.clientX; lastLookY = e.clientY;
-    canvas.setPointerCapture(e.pointerId);
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
   });
   canvas.addEventListener('pointermove', (e) => {
     if (!looking) return;
     const dx = e.clientX - lastLookX;
     const dy = e.clientY - lastLookY;
     lastLookX = e.clientX; lastLookY = e.clientY;
-    yaw -= dx * LOOK_SENS * 60;
-    pitch -= dy * LOOK_SENS * 60;
+    yaw -= dx * LOOK_SENS;
+    pitch -= dy * LOOK_SENS;
     pitch = Math.max(-1.15, Math.min(1.0, pitch));
   });
   window.addEventListener('pointerup', () => { looking = false; });
@@ -639,7 +797,7 @@
   const joyRect = () => els.joystick.getBoundingClientRect();
   els.joystick.addEventListener('pointerdown', (e) => {
     joyActive = true;
-    els.joystick.setPointerCapture(e.pointerId);
+    try { els.joystick.setPointerCapture(e.pointerId); } catch {}
     updateJoy(e);
   });
   els.joystick.addEventListener('pointermove', (e) => { if (joyActive) updateJoy(e); });
@@ -677,7 +835,9 @@
   // to the ground, so a strict ray would demand precise up/down aim from a
   // 7-year-old on a touch screen. This only cares which way the player is
   // facing (yaw) and how close they are, not where they're looking vertically.
-  const MIN_TARGET_DOT = 0.72;
+  // Anything within INTERACT_CLOSE_DISTANCE counts regardless of facing, so
+  // standing right next to a plant is always enough.
+  const MIN_TARGET_DOT = 0.45;
   function currentTarget() {
     const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
     let best = null;
@@ -688,8 +848,8 @@
       const dist = Math.hypot(dx, dz);
       if (dist > INTERACT_DISTANCE || dist < 0.001) continue;
       const dot = (forward.x * dx + forward.z * dz) / dist;
-      if (dot < MIN_TARGET_DOT) continue;
-      const score = dot - dist * 0.02;
+      if (dot < MIN_TARGET_DOT && dist > INTERACT_CLOSE_DISTANCE) continue;
+      const score = dot - dist * 0.05;
       if (score > bestScore) { bestScore = score; best = p; }
     }
     return best;
