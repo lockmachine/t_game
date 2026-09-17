@@ -1,115 +1,75 @@
-<title>ぬけ!ざっそう</title>
+<title>ぬけ!ざっそう 3D</title>
 <style>
   :root {
-    --sky-top: #bde0fe;
-    --sky-bottom: #8ecae6;
-    --grass: #6a994e;
-    --grass-dark: #386641;
-    --soil: #a9744f;
+    --panel: #fefae0;
+    --panel-border: #e9d8a6;
     --sun: #ffb703;
     --sun-dark: #fb8500;
     --forbidden: #e63946;
-    --panel: #fefae0;
-    --panel-border: #e9d8a6;
     --ink: #283618;
     --ink-soft: #5c6b3f;
-    --locked: rgba(40, 54, 24, 0.35);
   }
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --sky-top: #14213d;
-      --sky-bottom: #1b2a4a;
-      --grass: #386641;
-      --grass-dark: #1f3d24;
-      --soil: #6b4a34;
-      --sun: #ffb703;
-      --sun-dark: #fb8500;
-      --forbidden: #ef476f;
       --panel: #22301a;
       --panel-border: #3a4a2a;
       --ink: #f1f5e6;
       --ink-soft: #c8d3ac;
-      --locked: rgba(241, 245, 230, 0.3);
     }
   }
 
   :root[data-theme="dark"] {
-    --sky-top: #14213d;
-    --sky-bottom: #1b2a4a;
-    --grass: #386641;
-    --grass-dark: #1f3d24;
-    --soil: #6b4a34;
-    --sun: #ffb703;
-    --sun-dark: #fb8500;
-    --forbidden: #ef476f;
     --panel: #22301a;
     --panel-border: #3a4a2a;
     --ink: #f1f5e6;
     --ink-soft: #c8d3ac;
-    --locked: rgba(241, 245, 230, 0.3);
   }
 
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
 
   body {
     margin: 0;
-    min-height: 100%;
-    background: linear-gradient(var(--sky-top), var(--sky-bottom));
+    overflow: hidden;
+    background: #8ecae6;
     font-family: 'Nunito', system-ui, sans-serif;
     color: var(--ink);
-    display: flex;
-    justify-content: center;
-    padding-inline: 16px;
-    padding-block: 16px;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
-  h1, .score-num, .level-badge, .toast, .btn {
+  #c {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .hud-top, .level-badge, .btn, .toast, .levelup-banner span {
     font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
   }
 
-  .app {
-    width: 100%;
-    max-width: 480px;
+  .hud-top {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 8px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
+    pointer-events: none;
   }
 
-  header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: clamp(1.3rem, 5vw, 1.7rem);
-    text-shadow: 0 2px 0 rgba(255,255,255,0.4);
-    flex: 1;
-  }
-
-  .avatar {
-    font-size: 2rem;
-    background: var(--panel);
+  .hud-panel {
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
     border: 2px solid var(--panel-border);
-    border-radius: 50%;
-    width: 52px;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .hud {
-    background: var(--panel);
-    border: 2px solid var(--panel-border);
-    border-radius: 16px;
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    border-radius: 14px;
+    padding: 8px 12px;
+    backdrop-filter: blur(2px);
   }
 
   .hud-row {
@@ -124,17 +84,15 @@
     color: var(--ink);
     font-weight: 700;
     border-radius: 999px;
-    padding: 2px 12px;
-    font-size: 1rem;
+    padding: 1px 12px;
+    font-size: 0.95rem;
   }
 
-  .score-num {
-    font-weight: 700;
-    font-size: 1.1rem;
-  }
+  .score-num { font-weight: 700; font-size: 1rem; }
 
   .progress-track {
-    height: 10px;
+    margin-top: 6px;
+    height: 8px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--panel-border) 60%, transparent);
     overflow: hidden;
@@ -148,99 +106,80 @@
   }
 
   .toast {
-    min-height: 1.4em;
+    margin-top: 8px;
     text-align: center;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     color: var(--ink-soft);
-    transition: opacity 0.2s ease;
+    text-shadow: 0 1px 3px rgba(255,255,255,0.6);
   }
 
-  .field {
-    position: relative;
-    background:
-      radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.15), transparent 60%),
-      var(--grass);
-    border: 3px solid var(--grass-dark);
-    border-radius: 18px;
-    padding: 14px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
-    gap: 10px;
-    min-height: 300px;
-    align-content: start;
-  }
-
-  .plot {
-    position: relative;
-    aspect-ratio: 1;
-    border: none;
-    border-radius: 14px;
-    background: var(--soil);
-    font-size: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-    transition: transform 0.12s ease;
-  }
-
-  .plot:active { transform: scale(0.92); }
-
-  .plot.locked { filter: grayscale(0.6); opacity: 0.75; }
-  .plot.locked::after {
-    content: '🔒';
-    position: absolute;
-    font-size: 0.9rem;
-    bottom: 2px;
-    right: 4px;
-  }
-
-  .plot.pulled {
-    animation: pop 0.28s ease forwards;
+  .crosshair {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border: 2px solid rgba(255,255,255,0.9);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
     pointer-events: none;
+    transition: transform 0.12s ease, background 0.12s ease;
   }
 
-  .plot.rejected {
-    animation: shake 0.35s ease;
+  .crosshair.targeting {
+    transform: scale(1.6);
+    background: rgba(255, 183, 3, 0.85);
   }
 
-  @keyframes pop {
-    to { transform: scale(0); opacity: 0; }
+  .joystick {
+    position: fixed;
+    left: calc(18px + env(safe-area-inset-left, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: 108px;
+    height: 108px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--panel) 55%, transparent);
+    border: 2px solid var(--panel-border);
+    touch-action: none;
   }
 
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-6px) rotate(-4deg); }
-    75% { transform: translateX(6px) rotate(4deg); }
-  }
-
-  .float-text {
+  .joystick-knob {
     position: absolute;
     left: 50%;
-    top: 0;
-    transform: translateX(-50%);
+    top: 50%;
+    width: 46px;
+    height: 46px;
+    margin: -23px 0 0 -23px;
+    border-radius: 50%;
+    background: var(--sun-dark);
+    opacity: 0.9;
+  }
+
+  .pull-btn {
+    position: fixed;
+    right: calc(20px + env(safe-area-inset-right, 0px));
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: none;
+    background: var(--forbidden);
+    color: #fff;
     font-weight: 700;
-    font-size: 0.95rem;
-    pointer-events: none;
-    animation: float-up 0.9s ease forwards;
-    white-space: nowrap;
+    font-size: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    touch-action: manipulation;
   }
 
-  .float-text.gain { color: #2d6a4f; }
-  .float-text.loss { color: var(--forbidden); }
-
-  @keyframes float-up {
-    0% { opacity: 1; top: 0; }
-    100% { opacity: 0; top: -34px; }
-  }
+  .pull-btn:active { transform: scale(0.94); }
 
   .actions {
-    display: flex;
-    justify-content: center;
-    min-height: 44px;
+    position: fixed;
+    left: 50%;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
   }
 
   .btn {
@@ -255,22 +194,19 @@
     touch-action: manipulation;
   }
 
-  .btn:active { transform: scale(0.96); }
-
-  footer {
-    text-align: center;
-    font-size: 0.75rem;
-    color: var(--ink-soft);
-  }
-
   .reset-link {
+    position: fixed;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    right: 10px;
     background: none;
     border: none;
     color: var(--ink-soft);
     text-decoration: underline;
     font: inherit;
+    font-size: 0.7rem;
     cursor: pointer;
-    padding: 4px;
+    padding: 6px;
+    pointer-events: auto;
   }
 
   .levelup-banner {
@@ -287,10 +223,10 @@
     background: var(--sun);
     color: var(--ink);
     font-weight: 700;
-    font-size: 1.4rem;
-    padding: 14px 28px;
+    font-size: 1.3rem;
+    padding: 12px 24px;
     border-radius: 20px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
     animation: banner-pop 1.1s ease forwards;
   }
 
@@ -305,13 +241,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
 
-<div class="app">
-  <header>
-    <div class="avatar" id="avatar">🧒</div>
-    <h1>ぬけ!ざっそう</h1>
-  </header>
+<canvas id="c"></canvas>
 
-  <div class="hud">
+<div class="hud-top">
+  <div class="hud-panel">
     <div class="hud-row">
       <span class="level-badge" id="levelBadge">Lv.1</span>
       <span class="score-num" id="scoreNum">0 ポイント</span>
@@ -319,236 +252,101 @@
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <div class="toast" id="toast"></div>
   </div>
-
-  <div class="field" id="field"></div>
-
-  <div class="actions">
-    <button class="btn" id="newFieldBtn" hidden>つぎのはたけ</button>
-  </div>
-
-  <footer>
-    ためしバージョン ・
-    <button class="reset-link" id="resetBtn">さいしょからやりなおす</button>
-  </footer>
 </div>
 
+<div class="crosshair" id="crosshair"></div>
+
+<div class="joystick" id="joystick"><div class="joystick-knob" id="joystickKnob"></div></div>
+<button class="pull-btn" id="pullBtn">ぬく!</button>
+
+<div class="actions">
+  <button class="btn" id="newFieldBtn" hidden>つぎのはたけ</button>
+</div>
+
+<button class="reset-link" id="resetBtn">さいしょから</button>
 <div class="levelup-banner" id="levelupBanner"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
 (() => {
-  const STORAGE_KEY = 'zassou-game-save-v1';
+  const STORAGE_KEY = 'zassou-game-save-v2';
 
   const WEED_TIERS = [
-    { unlockLevel: 1, emoji: '🌱', name: 'ちいさい雑草', points: 10 },
-    { unlockLevel: 2, emoji: '🌿', name: 'ふつうの雑草', points: 20 },
-    { unlockLevel: 3, emoji: '🍀', name: 'おおきい雑草', points: 35 },
+    { unlockLevel: 1, name: 'ちいさい雑草', points: 10, color: 0x9be564, size: 0.34 },
+    { unlockLevel: 2, name: 'ふつうの雑草', points: 20, color: 0x5b8c3e, size: 0.55 },
+    { unlockLevel: 3, name: 'おおきい雑草', points: 35, color: 0x2f5d34, size: 0.85 },
   ];
 
-  const FORBIDDEN = { emoji: '🌷', name: 'おはな', penalty: 15 };
+  const FORBIDDEN = { name: 'おはな', penalty: 15, stemColor: 0x4c9a2a, petalColor: 0xe63946 };
 
   const LEVELS = [
-    { level: 1, needPoints: 0, avatar: '🧒' },
-    { level: 2, needPoints: 50, avatar: '👦' },
-    { level: 3, needPoints: 130, avatar: '🧑' },
+    { level: 1, needPoints: 0 },
+    { level: 2, needPoints: 50 },
+    { level: 3, needPoints: 130 },
   ];
 
-  const MAX_LEVEL = LEVELS[LEVELS.length - 1].level;
+  const BOUNDS = 5.2;
+  const EYE_HEIGHT = 1.6;
+  const MOVE_SPEED = 3.4;
+  const LOOK_SENS = 0.0032;
+  const INTERACT_DISTANCE = 3.4;
 
-  const els = {
-    field: document.getElementById('field'),
-    levelBadge: document.getElementById('levelBadge'),
-    scoreNum: document.getElementById('scoreNum'),
-    progressFill: document.getElementById('progressFill'),
-    toast: document.getElementById('toast'),
-    newFieldBtn: document.getElementById('newFieldBtn'),
-    resetBtn: document.getElementById('resetBtn'),
-    avatar: document.getElementById('avatar'),
-    levelupBanner: document.getElementById('levelupBanner'),
-  };
-
+  // ---------- state ----------
   function loadPoints() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
       return parsed && typeof parsed.points === 'number' ? parsed.points : 0;
-    } catch {
-      return 0;
-    }
+    } catch { return 0; }
   }
-
-  function savePoints(points) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ points }));
-    } catch {}
+  function savePoints(p) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ points: p })); } catch {}
   }
 
   let points = loadPoints();
   let level = computeLevel(points);
-  let cellsLeft = 0;
+  let yaw = 0;
+  let pitch = -0.18;
+  let plots = [];
+  let floaters = [];
+  let interactableLeft = 0;
 
   function computeLevel(pts) {
     let lvl = LEVELS[0];
-    for (const entry of LEVELS) {
-      if (pts >= entry.needPoints) lvl = entry;
-    }
+    for (const e of LEVELS) if (pts >= e.needPoints) lvl = e;
     return lvl.level;
   }
+  function levelInfo(l) { return LEVELS.find((e) => e.level === l) || LEVELS[0]; }
+  function nextLevelInfo(l) { return LEVELS.find((e) => e.level === l + 1) || null; }
 
-  function levelInfo(lvl) {
-    return LEVELS.find((l) => l.level === lvl) || LEVELS[0];
-  }
-
-  function nextLevelInfo(lvl) {
-    return LEVELS.find((l) => l.level === lvl + 1) || null;
-  }
+  // ---------- HUD ----------
+  const els = {
+    levelBadge: document.getElementById('levelBadge'),
+    scoreNum: document.getElementById('scoreNum'),
+    progressFill: document.getElementById('progressFill'),
+    toast: document.getElementById('toast'),
+    crosshair: document.getElementById('crosshair'),
+    newFieldBtn: document.getElementById('newFieldBtn'),
+    resetBtn: document.getElementById('resetBtn'),
+    levelupBanner: document.getElementById('levelupBanner'),
+    pullBtn: document.getElementById('pullBtn'),
+    joystick: document.getElementById('joystick'),
+    joystickKnob: document.getElementById('joystickKnob'),
+  };
 
   function updateHud() {
     els.levelBadge.textContent = `Lv.${level}`;
     els.scoreNum.textContent = `${points} ポイント`;
-    els.avatar.textContent = levelInfo(level).avatar;
-
     const next = nextLevelInfo(level);
     if (!next) {
       els.progressFill.style.width = '100%';
     } else {
       const cur = levelInfo(level).needPoints;
-      const span = next.needPoints - cur;
-      const ratio = Math.max(0, Math.min(1, (points - cur) / span));
+      const ratio = Math.max(0, Math.min(1, (points - cur) / (next.needPoints - cur)));
       els.progressFill.style.width = `${ratio * 100}%`;
     }
   }
-
-  function showToast(text) {
-    els.toast.textContent = text;
-  }
-
-  function pickWeedTierIndex(maxUnlockedTier) {
-    const upper = Math.min(maxUnlockedTier + 1, WEED_TIERS.length - 1);
-    const roll = Math.random();
-    if (roll < 0.15 && upper > maxUnlockedTier) return upper;
-    return Math.floor(Math.random() * (maxUnlockedTier + 1));
-  }
-
-  function generateField() {
-    els.field.innerHTML = '';
-    els.newFieldBtn.hidden = true;
-
-    const maxUnlockedTier = WEED_TIERS.reduce(
-      (acc, tier, idx) => (tier.unlockLevel <= level ? idx : acc), 0
-    );
-
-    const totalCells = 12;
-    const forbiddenCount = 3;
-    const cells = [];
-
-    for (let i = 0; i < forbiddenCount; i++) {
-      cells.push({ type: 'forbidden' });
-    }
-    for (let i = forbiddenCount; i < totalCells; i++) {
-      cells.push({ type: 'weed', tierIndex: pickWeedTierIndex(maxUnlockedTier) });
-    }
-
-    shuffle(cells);
-    cellsLeft = cells.filter(
-      (c) => c.type === 'weed' && WEED_TIERS[c.tierIndex].unlockLevel <= level
-    ).length;
-
-    cells.forEach((cell) => renderCell(cell));
-    showToast('ぬいてもいいざっそうを　みつけてタップしてね');
-  }
-
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-  }
-
-  function renderCell(cell) {
-    const plot = document.createElement('button');
-    plot.className = 'plot';
-    plot.type = 'button';
-
-    if (cell.type === 'forbidden') {
-      plot.textContent = FORBIDDEN.emoji;
-      plot.dataset.type = 'forbidden';
-    } else {
-      const tier = WEED_TIERS[cell.tierIndex];
-      plot.textContent = tier.emoji;
-      plot.dataset.type = 'weed';
-      plot.dataset.tier = cell.tierIndex;
-      if (tier.unlockLevel > level) plot.classList.add('locked');
-    }
-
-    plot.addEventListener('click', () => onPlotTap(plot));
-    els.field.appendChild(plot);
-  }
-
-  function floatText(plot, text, cls) {
-    const span = document.createElement('span');
-    span.className = `float-text ${cls}`;
-    span.textContent = text;
-    plot.appendChild(span);
-    span.addEventListener('animationend', () => span.remove());
-  }
-
-  function onPlotTap(plot) {
-    if (plot.classList.contains('pulled')) return;
-
-    if (plot.dataset.type === 'forbidden') {
-      floatText(plot, `-${FORBIDDEN.penalty}`, 'loss');
-      plot.classList.add('rejected');
-      applyPoints(-FORBIDDEN.penalty);
-      showToast(`それは${FORBIDDEN.name}!　ぬいちゃダメだよ`);
-      plot.classList.add('pulled');
-      plot.addEventListener('animationend', () => plot.remove(), { once: true });
-      return;
-    }
-
-    const tierIndex = Number(plot.dataset.tier);
-    const tier = WEED_TIERS[tierIndex];
-
-    if (tier.unlockLevel > level) {
-      plot.classList.add('rejected');
-      showToast(`まだ Lv.${tier.unlockLevel} にならないと ぬけないよ`);
-      setTimeout(() => plot.classList.remove('rejected'), 350);
-      return;
-    }
-
-    floatText(plot, `+${tier.points}`, 'gain');
-    plot.classList.add('pulled');
-    applyPoints(tier.points);
-    showToast(`${tier.name}を ぬいた!`);
-    cellsLeft -= 1;
-    plot.addEventListener('animationend', () => {
-      plot.remove();
-      if (cellsLeft <= 0) els.newFieldBtn.hidden = false;
-    }, { once: true });
-  }
-
-  function applyPoints(delta) {
-    const before = level;
-    points = Math.max(0, points + delta);
-    level = computeLevel(points);
-    savePoints(points);
-    updateHud();
-    updateLockedCells();
-
-    if (level > before) celebrateLevelUp();
-    else if (level < before) showToast(`ポイントが へって Lv.${level} に もどっちゃった…`);
-  }
-
-  function updateLockedCells() {
-    document.querySelectorAll('.plot[data-type="weed"]').forEach((plot) => {
-      const tier = WEED_TIERS[Number(plot.dataset.tier)];
-      const nowLocked = tier.unlockLevel > level;
-      plot.classList.toggle('locked', nowLocked);
-    });
-    cellsLeft = document.querySelectorAll('.plot[data-type="weed"]:not(.locked)').length;
-    if (cellsLeft <= 0 && els.field.children.length > 0) {
-      els.newFieldBtn.hidden = false;
-    }
-  }
+  function showToast(text) { els.toast.textContent = text; }
 
   function celebrateLevelUp() {
     const span = document.createElement('span');
@@ -558,17 +356,407 @@
     span.addEventListener('animationend', () => span.remove());
   }
 
-  els.newFieldBtn.addEventListener('click', generateField);
+  // ---------- three.js scene ----------
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-  els.resetBtn.addEventListener('click', () => {
-    points = 0;
-    level = 1;
+  const scene = new THREE.Scene();
+  const SKY = 0x8ecae6;
+  scene.background = new THREE.Color(SKY);
+  scene.fog = new THREE.Fog(SKY, 9, 24);
+
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
+  camera.rotation.order = 'YXZ';
+  camera.position.set(0, EYE_HEIGHT, 5.4);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x4a6b2a, 0.9));
+  const sun = new THREE.DirectionalLight(0xfff2cc, 0.9);
+  sun.position.set(6, 10, 4);
+  scene.add(sun);
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 40),
+    new THREE.MeshStandardMaterial({ color: 0x6a994e, roughness: 1 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  // decorative grass tufts (instanced, non-interactive)
+  {
+    const tuftGeo = new THREE.ConeGeometry(0.05, 0.22, 5);
+    const tuftMat = new THREE.MeshStandardMaterial({ color: 0x4f7a3a, roughness: 1 });
+    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, 90);
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < 90; i++) {
+      const r = 3 + Math.random() * 8.5;
+      const a = Math.random() * Math.PI * 2;
+      dummy.position.set(Math.cos(a) * r, 0.11, Math.sin(a) * r);
+      dummy.rotation.y = Math.random() * Math.PI;
+      dummy.updateMatrix();
+      tufts.setMatrixAt(i, dummy.matrix);
+    }
+    scene.add(tufts);
+  }
+
+  // border trees for framing
+  {
+    const trunkGeo = new THREE.CylinderGeometry(0.14, 0.18, 1.2, 7);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a34, roughness: 1 });
+    const leafGeo = new THREE.SphereGeometry(0.85, 8, 6);
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x386641, roughness: 0.9 });
+    const treeSpots = [[-7.5, -7], [7.5, -6.5], [-7, 7.5], [7.8, 7]];
+    for (const [x, z] of treeSpots) {
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.set(x, 0.6, z);
+      scene.add(trunk);
+      const leaf = new THREE.Mesh(leafGeo, leafMat);
+      leaf.position.set(x, 1.5, z);
+      scene.add(leaf);
+    }
+  }
+
+  function makeTextSprite(text, { size = 64, color = '#283618', bg = null } = {}) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d');
+    if (bg) { ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.font = `${size * 0.62}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(text, size / 2, size / 2 + size * 0.03);
+    const tex = new THREE.CanvasTexture(cv);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    return new THREE.Sprite(mat);
+  }
+
+  function buildWeedPlot(tierIndex) {
+    const tier = WEED_TIERS[tierIndex];
+    const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: tier.color, roughness: 0.85 });
+    const clumps = tierIndex === 0 ? 1 : tierIndex === 1 ? 3 : 5;
+    for (let i = 0; i < clumps; i++) {
+      const h = tier.size * (0.7 + Math.random() * 0.5);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(tier.size * 0.28, h, 6), mat);
+      const off = clumps === 1 ? 0 : tier.size * 0.22;
+      cone.position.set((Math.random() - 0.5) * off, h / 2, (Math.random() - 0.5) * off);
+      cone.rotation.y = Math.random() * Math.PI;
+      group.add(cone);
+    }
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(tier.size * 0.55, tier.size * 0.7, 20),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    ring.visible = false;
+    group.add(ring);
+
+    const lock = makeTextSprite('🔒', { size: 48, bg: 'rgba(20,20,20,0.55)' });
+    lock.scale.set(0.4, 0.4, 0.4);
+    lock.position.set(0, tier.size + 0.35, 0);
+    lock.visible = false;
+    group.add(lock);
+
+    group.userData = { kind: 'weed', tierIndex, locked: false, ring, lockSprite: lock, plantMat: mat, baseColor: tier.color };
+    return group;
+  }
+
+  function buildForbiddenPlot() {
+    const group = new THREE.Group();
+    const stemMat = new THREE.MeshStandardMaterial({ color: FORBIDDEN.stemColor, roughness: 0.9 });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.55, 6), stemMat);
+    stem.position.y = 0.275;
+    group.add(stem);
+
+    const petalMat = new THREE.MeshStandardMaterial({ color: FORBIDDEN.petalColor, roughness: 0.6 });
+    for (let i = 0; i < 5; i++) {
+      const petal = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), petalMat);
+      const a = (i / 5) * Math.PI * 2;
+      petal.position.set(Math.cos(a) * 0.13, 0.6, Math.sin(a) * 0.13);
+      petal.scale.set(1, 0.55, 1);
+      group.add(petal);
+    }
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.6 }));
+    core.position.y = 0.6;
+    group.add(core);
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.4, 20),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    ring.visible = false;
+    group.add(ring);
+
+    group.userData = { kind: 'forbidden', ring };
+    return group;
+  }
+
+  function randomPlacement(existing) {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const x = (Math.random() - 0.5) * 2 * (BOUNDS - 1);
+      const z = (Math.random() - 0.5) * 2 * (BOUNDS - 1);
+      if (Math.hypot(x, z) < 1.6) continue;
+      let ok = true;
+      for (const p of existing) {
+        if (Math.hypot(p.x - x, p.z - z) < 1.15) { ok = false; break; }
+      }
+      if (ok) return { x, z };
+    }
+    return { x: (Math.random() - 0.5) * 2 * (BOUNDS - 1), z: (Math.random() - 0.5) * 2 * (BOUNDS - 1) };
+  }
+
+  function pickWeedTierIndex(maxUnlockedTier) {
+    const upper = Math.min(maxUnlockedTier + 1, WEED_TIERS.length - 1);
+    const roll = Math.random();
+    if (roll < 0.18 && upper > maxUnlockedTier) return upper;
+    return Math.floor(Math.random() * (maxUnlockedTier + 1));
+  }
+
+  function generateGarden() {
+    for (const p of plots) scene.remove(p.group);
+    plots = [];
+    els.newFieldBtn.hidden = true;
+
+    const maxUnlockedTier = WEED_TIERS.reduce((acc, t, i) => (t.unlockLevel <= level ? i : acc), 0);
+    const total = 11;
+    const forbiddenCount = 3;
+    const specs = [];
+    for (let i = 0; i < forbiddenCount; i++) specs.push({ kind: 'forbidden' });
+    for (let i = forbiddenCount; i < total; i++) specs.push({ kind: 'weed', tierIndex: pickWeedTierIndex(maxUnlockedTier) });
+
+    const placed = [];
+    for (const spec of specs) {
+      const { x, z } = randomPlacement(placed);
+      placed.push({ x, z });
+      const group = spec.kind === 'weed' ? buildWeedPlot(spec.tierIndex) : buildForbiddenPlot();
+      group.position.set(x, 0, z);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(group);
+      plots.push({ group, data: group.userData });
+    }
+
+    applyLockState();
+    showToast('ドラッグで まわりを みまわして、ざっそうを さがそう');
+  }
+
+  function applyLockState() {
+    interactableLeft = 0;
+    for (const p of plots) {
+      if (p.data.kind !== 'weed') continue;
+      const tier = WEED_TIERS[p.data.tierIndex];
+      const locked = tier.unlockLevel > level;
+      p.data.locked = locked;
+      p.data.plantMat.color.set(locked ? 0x8d9585 : p.data.baseColor);
+      p.data.plantMat.opacity = locked ? 0.75 : 1;
+      p.data.plantMat.transparent = locked;
+      p.data.lockSprite.visible = locked;
+      if (!locked) interactableLeft++;
+    }
+    if (interactableLeft <= 0 && plots.length > 0) els.newFieldBtn.hidden = false;
+  }
+
+  function spawnFloater(position, text, color) {
+    const sprite = makeTextSprite(text, { size: 80, color });
+    sprite.scale.set(0.6, 0.6, 0.6);
+    sprite.position.copy(position);
+    sprite.position.y += 0.9;
+    scene.add(sprite);
+    floaters.push({ sprite, life: 1 });
+  }
+
+  function applyPoints(delta) {
+    const before = level;
+    points = Math.max(0, points + delta);
+    level = computeLevel(points);
     savePoints(points);
     updateHud();
-    generateField();
+    applyLockState();
+    if (level > before) celebrateLevelUp();
+    else if (level < before) showToast(`ポイントが へって Lv.${level} に もどっちゃった…`);
+  }
+
+  function interact(target) {
+    if (!target) {
+      showToast('ねらいを　ざっそうに あわせてね');
+      return;
+    }
+    const { group, data } = target;
+    if (data.kind === 'forbidden') {
+      spawnFloater(group.position, `-${FORBIDDEN.penalty}`, '#e63946');
+      applyPoints(-FORBIDDEN.penalty);
+      showToast(`それは${FORBIDDEN.name}!　ぬいちゃダメだよ`);
+      scene.remove(group);
+      plots = plots.filter((p) => p !== target);
+      return;
+    }
+    const tier = WEED_TIERS[data.tierIndex];
+    if (data.locked) {
+      showToast(`まだ Lv.${tier.unlockLevel} にならないと ぬけないよ`);
+      return;
+    }
+    spawnFloater(group.position, `+${tier.points}`, '#2d6a4f');
+    applyPoints(tier.points);
+    showToast(`${tier.name}を ぬいた!`);
+    scene.remove(group);
+    plots = plots.filter((p) => p !== target);
+    interactableLeft = Math.max(0, interactableLeft - 1);
+    if (interactableLeft <= 0) els.newFieldBtn.hidden = false;
+  }
+
+  // ---------- controls ----------
+  const keys = {};
+  window.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code === 'Space') interact(currentTarget());
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  let looking = false;
+  let lastLookX = 0, lastLookY = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    looking = true;
+    lastLookX = e.clientX; lastLookY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!looking) return;
+    const dx = e.clientX - lastLookX;
+    const dy = e.clientY - lastLookY;
+    lastLookX = e.clientX; lastLookY = e.clientY;
+    yaw -= dx * LOOK_SENS * 60;
+    pitch -= dy * LOOK_SENS * 60;
+    pitch = Math.max(-1.15, Math.min(1.0, pitch));
+  });
+  window.addEventListener('pointerup', () => { looking = false; });
+
+  let joyVec = { x: 0, y: 0 };
+  let joyActive = false;
+  const joyRect = () => els.joystick.getBoundingClientRect();
+  els.joystick.addEventListener('pointerdown', (e) => {
+    joyActive = true;
+    els.joystick.setPointerCapture(e.pointerId);
+    updateJoy(e);
+  });
+  els.joystick.addEventListener('pointermove', (e) => { if (joyActive) updateJoy(e); });
+  els.joystick.addEventListener('pointerup', () => { resetJoy(); });
+  els.joystick.addEventListener('pointercancel', () => { resetJoy(); });
+
+  function updateJoy(e) {
+    const r = joyRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const max = r.width / 2;
+    const dist = Math.min(Math.hypot(dx, dy), max);
+    const angle = Math.atan2(dy, dx);
+    dx = Math.cos(angle) * dist;
+    dy = Math.sin(angle) * dist;
+    joyVec = { x: dx / max, y: dy / max };
+    els.joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+  function resetJoy() {
+    joyActive = false;
+    joyVec = { x: 0, y: 0 };
+    els.joystickKnob.style.transform = 'translate(0,0)';
+  }
+
+  els.pullBtn.addEventListener('click', () => interact(currentTarget()));
+  els.newFieldBtn.addEventListener('click', generateGarden);
+  els.resetBtn.addEventListener('click', () => {
+    points = 0; level = 1; savePoints(points); updateHud(); generateGarden();
   });
 
+  // ---------- targeting ----------
+  // A forgiving "facing cone" instead of a pixel-thin raycast: plants sit low
+  // to the ground, so a strict ray would demand precise up/down aim from a
+  // 7-year-old on a touch screen. This only cares which way the player is
+  // facing (yaw) and how close they are, not where they're looking vertically.
+  const MIN_TARGET_DOT = 0.72;
+  function currentTarget() {
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
+    let best = null;
+    let bestScore = -Infinity;
+    for (const p of plots) {
+      const dx = p.group.position.x - camera.position.x;
+      const dz = p.group.position.z - camera.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > INTERACT_DISTANCE || dist < 0.001) continue;
+      const dot = (forward.x * dx + forward.z * dz) / dist;
+      if (dot < MIN_TARGET_DOT) continue;
+      const score = dot - dist * 0.02;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    return best;
+  }
+
+  // ---------- resize ----------
+  function onResize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  // ---------- main loop ----------
+  const clock = new THREE.Clock();
+  let lastTargetGroup = null;
+
+  function tick() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    let mx = 0, my = 0;
+    if (keys['KeyW'] || keys['ArrowUp']) my += 1;
+    if (keys['KeyS'] || keys['ArrowDown']) my -= 1;
+    if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
+    if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
+    mx += joyVec.x;
+    my -= joyVec.y;
+    const len = Math.hypot(mx, my);
+    if (len > 1) { mx /= len; my /= len; }
+
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
+    const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, yaw, 0));
+    const move = new THREE.Vector3()
+      .addScaledVector(forward, my)
+      .addScaledVector(right, mx);
+    if (move.lengthSq() > 0) {
+      camera.position.addScaledVector(move.normalize(), MOVE_SPEED * dt);
+      camera.position.x = Math.max(-BOUNDS, Math.min(BOUNDS, camera.position.x));
+      camera.position.z = Math.max(-BOUNDS, Math.min(BOUNDS, camera.position.z));
+    }
+    camera.rotation.set(pitch, yaw, 0);
+
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.life -= dt / 0.9;
+      f.sprite.position.y += dt * 0.6;
+      f.sprite.material.opacity = Math.max(0, f.life);
+      if (f.life <= 0) { scene.remove(f.sprite); floaters.splice(i, 1); }
+    }
+
+    const target = currentTarget();
+    const targetGroup = target ? target.group : null;
+    if (targetGroup !== lastTargetGroup) {
+      if (lastTargetGroup) lastTargetGroup.userData.ring.visible = false;
+      if (targetGroup) targetGroup.userData.ring.visible = true;
+      lastTargetGroup = targetGroup;
+      els.crosshair.classList.toggle('targeting', !!targetGroup);
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+
   updateHud();
-  generateField();
+  generateGarden();
+  requestAnimationFrame(tick);
 })();
 </script>
