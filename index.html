@@ -80,6 +80,11 @@
     gap: 8px;
   }
 
+  .avatar-badge {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
   .level-badge {
     background: var(--sun);
     color: var(--ink);
@@ -195,10 +200,16 @@
     touch-action: manipulation;
   }
 
-  .reset-link {
+  .corner-links {
     position: fixed;
     top: calc(8px + env(safe-area-inset-top, 0px));
     right: 10px;
+    display: flex;
+    gap: 4px;
+    z-index: 5;
+  }
+
+  .reset-link {
     background: none;
     border: none;
     color: var(--ink-soft);
@@ -208,6 +219,7 @@
     cursor: pointer;
     padding: 6px;
     pointer-events: auto;
+    touch-action: manipulation;
   }
 
   .levelup-banner {
@@ -247,6 +259,7 @@
 <div class="hud-top">
   <div class="hud-panel">
     <div class="hud-row">
+      <span class="avatar-badge" id="avatarBadge">🧒</span>
       <span class="level-badge" id="levelBadge">Lv.1</span>
       <span class="score-num" id="scoreNum">0 ポイント</span>
     </div>
@@ -264,7 +277,10 @@
   <button class="btn" id="newFieldBtn" hidden>つぎのはたけ</button>
 </div>
 
-<button class="reset-link" id="resetBtn">さいしょから</button>
+<div class="corner-links">
+  <button class="reset-link" id="soundBtn">🔊 おと</button>
+  <button class="reset-link" id="resetBtn">さいしょから</button>
+</div>
 <div class="levelup-banner" id="levelupBanner"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -288,7 +304,7 @@
 
   const BOUNDS = 6.4;
   const EYE_HEIGHT = 1.6;
-  const MOVE_SPEED = 3.6;
+  const MOVE_SPEED = 2.7;
   const LOOK_SENS = 0.0042;
   const INTERACT_DISTANCE = 4.6;
   const INTERACT_CLOSE_DISTANCE = 1.5;
@@ -311,7 +327,19 @@
   let pitch = -0.18;
   let plots = [];
   let floaters = [];
+  let particles = [];
+  let despawning = [];
+  let clouds = [];
+  let butterflies = [];
+  let elapsed = 0;
   let interactableLeft = 0;
+
+  const AVATARS = { 1: '🧒', 2: '🧑‍🌾', 3: '🧑‍🎓' };
+
+  function loadSoundPref() {
+    try { return localStorage.getItem('zassou-sound') !== 'off'; } catch { return true; }
+  }
+  let soundOn = loadSoundPref();
 
   function computeLevel(pts) {
     let lvl = LEVELS[0];
@@ -323,6 +351,7 @@
 
   // ---------- HUD ----------
   const els = {
+    avatarBadge: document.getElementById('avatarBadge'),
     levelBadge: document.getElementById('levelBadge'),
     scoreNum: document.getElementById('scoreNum'),
     progressFill: document.getElementById('progressFill'),
@@ -330,6 +359,7 @@
     crosshair: document.getElementById('crosshair'),
     newFieldBtn: document.getElementById('newFieldBtn'),
     resetBtn: document.getElementById('resetBtn'),
+    soundBtn: document.getElementById('soundBtn'),
     levelupBanner: document.getElementById('levelupBanner'),
     pullBtn: document.getElementById('pullBtn'),
     joystick: document.getElementById('joystick'),
@@ -339,6 +369,7 @@
   function updateHud() {
     els.levelBadge.textContent = `Lv.${level}`;
     els.scoreNum.textContent = `${points} ポイント`;
+    els.avatarBadge.textContent = AVATARS[level] || AVATARS[1];
     const next = nextLevelInfo(level);
     if (!next) {
       els.progressFill.style.width = '100%';
@@ -356,7 +387,50 @@
     els.levelupBanner.innerHTML = '';
     els.levelupBanner.appendChild(span);
     span.addEventListener('animationend', () => span.remove());
+    playLevelUpSound();
   }
+
+  // ---------- sound (synthesized, no audio files) ----------
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtx = new Ctx();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function playTone(freq, dur, type, gainPeak, startDelay) {
+    if (!soundOn) return;
+    try {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.value = freq;
+      const t0 = ctx.currentTime + (startDelay || 0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+    } catch {}
+  }
+  function playPullSound() { playTone(520, 0.12, 'triangle', 0.16, 0); playTone(780, 0.1, 'triangle', 0.1, 0.06); }
+  function playWrongSound() { playTone(180, 0.28, 'sawtooth', 0.14, 0); }
+  function playLockedSound() { playTone(300, 0.08, 'square', 0.06, 0); }
+  function playLevelUpSound() { [440, 554, 659, 880].forEach((f, i) => playTone(f, 0.2, 'triangle', 0.14, i * 0.09)); }
+
+  els.soundBtn.textContent = soundOn ? '🔊 おと' : '🔇 おと';
+  els.soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    els.soundBtn.textContent = soundOn ? '🔊 おと' : '🔇 おと';
+    try { localStorage.setItem('zassou-sound', soundOn ? 'on' : 'off'); } catch {}
+    if (soundOn) playPullSound();
+  });
 
   // ---------- three.js scene ----------
   const canvas = document.getElementById('c');
@@ -501,6 +575,24 @@
     const r = 11 + Math.random() * 8;
     group.position.set(Math.cos(a) * r, 6 + Math.random() * 2.5, Math.sin(a) * r);
     scene.add(group);
+    clouds.push({ group, speed: 0.15 + Math.random() * 0.2 });
+  }
+
+  function buildButterfly() {
+    const sprite = makeTextSprite('🦋', { size: 40 });
+    sprite.scale.set(0.35, 0.35, 0.35);
+    const a = Math.random() * Math.PI * 2;
+    const r = 1.5 + Math.random() * (BOUNDS - 1.5);
+    sprite.position.set(Math.cos(a) * r, 1.0 + Math.random() * 0.8, Math.sin(a) * r);
+    scene.add(sprite);
+    butterflies.push({
+      sprite,
+      center: { x: Math.cos(a) * r, z: Math.sin(a) * r },
+      radius: 0.6 + Math.random() * 0.9,
+      speed: 0.5 + Math.random() * 0.6,
+      phase: Math.random() * Math.PI * 2,
+      baseY: sprite.position.y,
+    });
   }
 
   // picket fence ring framing the playable garden
@@ -550,6 +642,7 @@
     }
 
     for (let i = 0; i < 7; i++) buildCloud();
+    for (let i = 0; i < 4; i++) buildButterfly();
   }
 
   function makeTextSprite(text, { size = 64, color = '#283618', bg = null } = {}) {
@@ -727,6 +820,36 @@
     floaters.push({ sprite, life: 1 });
   }
 
+  function spawnDirtBurst(position) {
+    const n = 6 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.05, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x6b4a34, roughness: 1, transparent: true })
+      );
+      mesh.position.copy(position);
+      mesh.position.y += 0.08;
+      scene.add(mesh);
+      const a = Math.random() * Math.PI * 2;
+      const speed = 0.6 + Math.random() * 1.0;
+      particles.push({
+        mesh,
+        vel: new THREE.Vector3(Math.cos(a) * speed, 1.6 + Math.random() * 1.2, Math.sin(a) * speed),
+        life: 1,
+      });
+    }
+  }
+
+  function despawnPlot(target, success) {
+    despawning.push({
+      group: target.group,
+      t: 0,
+      duration: success ? 0.36 : 0.3,
+      baseScale: target.group.scale.x || 1,
+      spin: success ? 10 : 22,
+    });
+  }
+
   function applyPoints(delta) {
     const before = level;
     points = Math.max(0, points + delta);
@@ -748,19 +871,23 @@
       spawnFloater(group.position, `-${FORBIDDEN.penalty}`, '#e63946');
       applyPoints(-FORBIDDEN.penalty);
       showToast(`それは${FORBIDDEN.name}!　ぬいちゃダメだよ`);
-      scene.remove(group);
+      playWrongSound();
+      despawnPlot(target, false);
       plots = plots.filter((p) => p !== target);
       return;
     }
     const tier = WEED_TIERS[data.tierIndex];
     if (data.locked) {
       showToast(`まだ Lv.${tier.unlockLevel} にならないと ぬけないよ`);
+      playLockedSound();
       return;
     }
     spawnFloater(group.position, `+${tier.points}`, '#2d6a4f');
     applyPoints(tier.points);
     showToast(`${tier.name}を ぬいた!`);
-    scene.remove(group);
+    playPullSound();
+    spawnDirtBurst(group.position);
+    despawnPlot(target, true);
     plots = plots.filter((p) => p !== target);
     interactableLeft = Math.max(0, interactableLeft - 1);
     if (interactableLeft <= 0) els.newFieldBtn.hidden = false;
@@ -815,8 +942,14 @@
     const angle = Math.atan2(dy, dx);
     dx = Math.cos(angle) * dist;
     dy = Math.sin(angle) * dist;
-    joyVec = { x: dx / max, y: dy / max };
     els.joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    // small deadzone plus an eased ramp so a light nudge walks gently and
+    // only a full push reaches top speed - a linear stick felt twitchy.
+    const rawMag = dist / max;
+    const deadzone = 0.14;
+    const eased = rawMag < deadzone ? 0 : Math.pow((rawMag - deadzone) / (1 - deadzone), 1.7);
+    const dirLen = Math.hypot(dx, dy) || 1;
+    joyVec = { x: (dx / dirLen) * eased, y: (dy / dirLen) * eased };
   }
   function resetJoy() {
     joyActive = false;
@@ -871,6 +1004,7 @@
 
   function tick() {
     const dt = Math.min(clock.getDelta(), 0.05);
+    elapsed += dt;
 
     let mx = 0, my = 0;
     if (keys['KeyW'] || keys['ArrowUp']) my += 1;
@@ -900,6 +1034,46 @@
       f.sprite.position.y += dt * 0.6;
       f.sprite.material.opacity = Math.max(0, f.life);
       if (f.life <= 0) { scene.remove(f.sprite); floaters.splice(i, 1); }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.vel.y -= 4.2 * dt;
+      p.mesh.position.addScaledVector(p.vel, dt);
+      p.mesh.rotation.x += dt * 6;
+      p.mesh.rotation.y += dt * 4;
+      p.life -= dt / 0.7;
+      p.mesh.material.opacity = Math.max(0, p.life);
+      if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); }
+    }
+
+    for (let i = despawning.length - 1; i >= 0; i--) {
+      const d = despawning[i];
+      d.t += dt;
+      const f = Math.min(1, d.t / d.duration);
+      const pop = f < 0.22 ? 1 + 0.3 * (f / 0.22) : Math.max(0, 1.3 * (1 - (f - 0.22) / 0.78));
+      d.group.scale.setScalar(pop * d.baseScale);
+      d.group.rotation.y += dt * d.spin;
+      d.group.position.y = f * 0.5;
+      if (f >= 1) { scene.remove(d.group); despawning.splice(i, 1); }
+    }
+
+    // gentle idle sway so the garden feels alive, not a static screenshot
+    for (const p of plots) {
+      const phase = p.group.position.x * 13.7 + p.group.position.z * 7.3;
+      p.group.rotation.z = Math.sin(elapsed * 1.6 + phase) * 0.05;
+    }
+
+    for (const c of clouds) {
+      c.group.position.x += Math.cos(elapsed * 0.05) * c.speed * dt;
+      c.group.position.z += Math.sin(elapsed * 0.05) * c.speed * dt;
+    }
+
+    for (const b of butterflies) {
+      const a = elapsed * b.speed + b.phase;
+      b.sprite.position.x = b.center.x + Math.cos(a) * b.radius;
+      b.sprite.position.z = b.center.z + Math.sin(a) * b.radius;
+      b.sprite.position.y = b.baseY + Math.sin(a * 3) * 0.15;
     }
 
     const target = currentTarget();
