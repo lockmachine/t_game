@@ -11,9 +11,9 @@ showMessage.Name = "ShowMessage"
 showMessage.Parent = ReplicatedStorage
 
 local WEED_TIERS = {
-	{ unlockLevel = 1, name = "ちいさい雑草", points = 10, colorName = "Bright green", size = Vector3.new(0.6, 1.2, 0.6) },
-	{ unlockLevel = 2, name = "ふつうの雑草", points = 20, colorName = "Forest green", size = Vector3.new(0.9, 1.8, 0.9) },
-	{ unlockLevel = 3, name = "おおきい雑草", points = 35, colorName = "Dark green", size = Vector3.new(1.3, 2.6, 1.3) },
+	{ unlockLevel = 1, name = "ちいさい雑草", points = 10, colorName = "Bright green", shape = "blade", length = 1.0, diameter = 0.18 },
+	{ unlockLevel = 2, name = "ふつうの雑草", points = 20, colorName = "Forest green", shape = "ball", diameter = 1.1 },
+	{ unlockLevel = 3, name = "おおきい雑草", points = 35, colorName = "Dark green", shape = "ball", diameter = 1.7 },
 }
 
 local FORBIDDEN_PENALTY = 15
@@ -99,11 +99,23 @@ local function makeWeed(tierIndex, x, z)
 	local groundY = getGroundY(x, z)
 	local part = Instance.new("Part")
 	part.Name = "Weed"
-	part.Size = tier.size
-	part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
 	part.Anchored = true
+	part.CanCollide = false
 	part.BrickColor = BrickColor.new(tier.colorName)
 	part.Material = Enum.Material.Grass
+
+	if tier.shape == "blade" then
+		-- 細長い円柱を垂直に立てて、葉っぱのような見た目にする。
+		part.Shape = Enum.PartType.Cylinder
+		part.Size = Vector3.new(tier.length, tier.diameter, tier.diameter)
+		part.Orientation = Vector3.new(0, 0, 90)
+		part.Position = Vector3.new(x, groundY + tier.length / 2, z)
+	else
+		part.Shape = Enum.PartType.Ball
+		part.Size = Vector3.new(tier.diameter, tier.diameter, tier.diameter)
+		part.Position = Vector3.new(x, groundY + tier.diameter / 2, z)
+	end
+
 	part.Parent = Workspace
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -134,14 +146,32 @@ end
 
 local function makeForbidden(x, z)
 	local groundY = getGroundY(x, z)
-	local size = Vector3.new(0.8, 1.4, 0.8)
-	local part = Instance.new("Part")
-	part.Name = "Forbidden"
-	part.Size = size
-	part.Position = Vector3.new(x, groundY + size.Y / 2, z)
-	part.Anchored = true
-	part.BrickColor = BrickColor.new("Bright red")
-	part.Parent = Workspace
+	local stemLength = 0.8
+	local headDiameter = 0.5
+
+	-- 茎(円柱、垂直に立てる)
+	local stem = Instance.new("Part")
+	stem.Name = "ForbiddenStem"
+	stem.Anchored = true
+	stem.CanCollide = false
+	stem.Shape = Enum.PartType.Cylinder
+	stem.Size = Vector3.new(stemLength, 0.06, 0.06)
+	stem.Orientation = Vector3.new(0, 0, 90)
+	stem.Position = Vector3.new(x, groundY + stemLength / 2, z)
+	stem.BrickColor = BrickColor.new("Forest green")
+	stem.Parent = Workspace
+
+	-- 花の頭(光る球体で目立たせる)
+	local head = Instance.new("Part")
+	head.Name = "Forbidden"
+	head.Anchored = true
+	head.CanCollide = false
+	head.Shape = Enum.PartType.Ball
+	head.Size = Vector3.new(headDiameter, headDiameter, headDiameter)
+	head.Position = Vector3.new(x, groundY + stemLength + headDiameter / 2, z)
+	head.BrickColor = BrickColor.new("Bright red")
+	head.Material = Enum.Material.Neon
+	head.Parent = Workspace
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "ぬく"
@@ -149,12 +179,13 @@ local function makeForbidden(x, z)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = part
+	prompt.Parent = head
 
 	prompt.Triggered:Connect(function(player)
 		showMessage:FireClient(player, "それはおはな! ぬいちゃダメだよ")
 		applyPoints(player, -FORBIDDEN_PENALTY)
-		part:Destroy()
+		stem:Destroy()
+		head:Destroy()
 		task.delay(RESPAWN_DELAY, spawnForbidden)
 	end)
 end
