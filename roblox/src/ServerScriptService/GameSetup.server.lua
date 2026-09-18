@@ -86,6 +86,14 @@ local function applyPoints(player, delta)
 	end
 end
 
+local RESPAWN_DELAY = 3.5
+local FIELD_RADIUS = 9
+local FIELD_DEADZONE = 2.5 -- スポーン地点の近くには生やさない
+
+-- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
+local spawnWeed
+local spawnForbidden
+
 local function makeWeed(tierIndex, x, z)
 	local tier = WEED_TIERS[tierIndex]
 	local groundY = getGroundY(x, z)
@@ -120,6 +128,7 @@ local function makeWeed(tierIndex, x, z)
 
 		applyPoints(player, tier.points)
 		part:Destroy()
+		task.delay(RESPAWN_DELAY, spawnWeed)
 	end)
 end
 
@@ -146,14 +155,48 @@ local function makeForbidden(x, z)
 		showMessage:FireClient(player, "それはおはな! ぬいちゃダメだよ")
 		applyPoints(player, -FORBIDDEN_PENALTY)
 		part:Destroy()
+		task.delay(RESPAWN_DELAY, spawnForbidden)
 	end)
 end
 
-makeWeed(1, 5, 5)
-makeWeed(1, -4, 3)
-makeWeed(1, 3, -3)
-makeWeed(2, 2, -6)
-makeWeed(2, -6, -4)
-makeWeed(3, 6, -7)
-makeForbidden(0, 8)
-makeForbidden(-2, -8)
+local function randomFieldPosition()
+	for _ = 1, 10 do
+		local x = (math.random() - 0.5) * 2 * FIELD_RADIUS
+		local z = (math.random() - 0.5) * 2 * FIELD_RADIUS
+		if math.sqrt(x * x + z * z) > FIELD_DEADZONE then
+			return x, z
+		end
+	end
+	return FIELD_RADIUS, FIELD_RADIUS
+end
+
+-- 序盤(Lv.1)でも生える雑草を多めにして、レベル2にちゃんと届くようにする。
+-- ときどきロック中の大きい雑草も混ぜて、レベルが上がる楽しみを見せておく。
+local function pickTierIndex()
+	local roll = math.random()
+	if roll < 0.6 then
+		return 1
+	elseif roll < 0.85 then
+		return 2
+	else
+		return 3
+	end
+end
+
+spawnWeed = function()
+	local tierIndex = pickTierIndex()
+	local x, z = randomFieldPosition()
+	makeWeed(tierIndex, x, z)
+end
+
+spawnForbidden = function()
+	local x, z = randomFieldPosition()
+	makeForbidden(x, z)
+end
+
+for _ = 1, 9 do
+	spawnWeed()
+end
+for _ = 1, 3 do
+	spawnForbidden()
+end
