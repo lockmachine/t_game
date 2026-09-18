@@ -1,0 +1,9 @@
+{
+  "name": "zassou-roblox",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$path": "src/ServerScriptService"
+    }
+  }
+}
