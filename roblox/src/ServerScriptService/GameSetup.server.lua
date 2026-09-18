@@ -34,6 +34,19 @@ local function computeLevel(points)
 	return level
 end
 
+-- Baseplateや地形の高さがどうであっても正しく置けるように、
+-- 上空からレイキャストして実際の地面のY座標を調べる。
+local function getGroundY(x, z)
+	local rayOrigin = Vector3.new(x, 500, z)
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	local result = Workspace:Raycast(rayOrigin, Vector3.new(0, -1000, 0), raycastParams)
+	if result then
+		return result.Position.Y
+	end
+	return 0
+end
+
 Players.PlayerAdded:Connect(function(player)
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
@@ -73,12 +86,13 @@ local function applyPoints(player, delta)
 	end
 end
 
-local function makeWeed(tierIndex, groundPosition)
+local function makeWeed(tierIndex, x, z)
 	local tier = WEED_TIERS[tierIndex]
+	local groundY = getGroundY(x, z)
 	local part = Instance.new("Part")
 	part.Name = "Weed"
 	part.Size = tier.size
-	part.Position = groundPosition + Vector3.new(0, tier.size.Y / 2, 0)
+	part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
 	part.Anchored = true
 	part.BrickColor = BrickColor.new(tier.colorName)
 	part.Material = Enum.Material.Grass
@@ -88,7 +102,8 @@ local function makeWeed(tierIndex, groundPosition)
 	prompt.ActionText = "ぬく"
 	prompt.ObjectText = tier.name
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 8
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
 	prompt.Parent = part
 
 	prompt.Triggered:Connect(function(player)
@@ -108,11 +123,13 @@ local function makeWeed(tierIndex, groundPosition)
 	end)
 end
 
-local function makeForbidden(groundPosition)
+local function makeForbidden(x, z)
+	local groundY = getGroundY(x, z)
+	local size = Vector3.new(0.8, 1.4, 0.8)
 	local part = Instance.new("Part")
 	part.Name = "Forbidden"
-	part.Size = Vector3.new(0.8, 1.4, 0.8)
-	part.Position = groundPosition + Vector3.new(0, 0.7, 0)
+	part.Size = size
+	part.Position = Vector3.new(x, groundY + size.Y / 2, z)
 	part.Anchored = true
 	part.BrickColor = BrickColor.new("Bright red")
 	part.Parent = Workspace
@@ -121,7 +138,8 @@ local function makeForbidden(groundPosition)
 	prompt.ActionText = "ぬく"
 	prompt.ObjectText = "おはな(ぬいちゃダメ!)"
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 8
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
 	prompt.Parent = part
 
 	prompt.Triggered:Connect(function(player)
@@ -131,11 +149,11 @@ local function makeForbidden(groundPosition)
 	end)
 end
 
-makeWeed(1, Vector3.new(5, 0, 5))
-makeWeed(1, Vector3.new(-4, 0, 3))
-makeWeed(1, Vector3.new(3, 0, -3))
-makeWeed(2, Vector3.new(2, 0, -6))
-makeWeed(2, Vector3.new(-6, 0, -4))
-makeWeed(3, Vector3.new(6, 0, -7))
-makeForbidden(Vector3.new(0, 0, 8))
-makeForbidden(Vector3.new(-2, 0, -8))
+makeWeed(1, 5, 5)
+makeWeed(1, -4, 3)
+makeWeed(1, 3, -3)
+makeWeed(2, 2, -6)
+makeWeed(2, -6, -4)
+makeWeed(3, 6, -7)
+makeForbidden(0, 8)
+makeForbidden(-2, -8)
