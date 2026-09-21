@@ -41,7 +41,7 @@ end
 -- ---------- 抜ける雑草・オブジェクト(そのレベルになったら抜けるようになる、全32種) ----------
 -- shape: "blade"(細長い柱、垂直に立てる) / "ball"(丸い茂み) / "block"(四角い建造物系)
 GameConfig.WEED_TIERS = {
-	{ unlockLevel = 1, name = "たんぽぽ", points = 10, shape = "blade", length = 0.5, diameter = 0.12, color = Color3.fromRGB(120, 190, 90), assetId = 14711174110 },
+	{ unlockLevel = 1, name = "たんぽぽ", points = 10, shape = "blade", length = 0.5, diameter = 0.12, color = Color3.fromRGB(120, 190, 90), assetId = 5342512389 },
 	{ unlockLevel = 2, name = "しろつめくさ", points = 20, shape = "ball", diameter = 0.5, color = Color3.fromRGB(140, 200, 120) },
 	{ unlockLevel = 3, name = "からすのえんどう", points = 30, shape = "blade", length = 0.6, diameter = 0.12, color = Color3.fromRGB(100, 170, 80) },
 	{ unlockLevel = 4, name = "えのころぐさ", points = 40, shape = "blade", length = 0.8, diameter = 0.14, color = Color3.fromRGB(180, 190, 110) },

@@ -102,6 +102,9 @@ end
 
 preloadAssetsFromTierList(GameConfig.WEED_TIERS)
 
+-- アセットモデルを置き、当たり判定(ProximityPrompt置き場)として
+-- モデル全体を包む透明な箱を別に用意する。モデルの中身がどんな構造でも
+-- (パーツが1個でも複数でも、名前が何でも)確実に反応するようにするため。
 local function placeAssetModel(template, x, z, groundY)
 	local model = template:Clone()
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -112,14 +115,18 @@ local function placeAssetModel(template, x, z, groundY)
 	end
 	model.Parent = Workspace
 	model:MoveTo(Vector3.new(x, groundY, z))
-	return model
-end
 
-local function findPromptAnchor(instance)
-	if instance:IsA("BasePart") then
-		return instance
-	end
-	return instance:FindFirstChildWhichIsA("BasePart", true)
+	local boundsCFrame, boundsSize = model:GetBoundingBox()
+	local hitbox = Instance.new("Part")
+	hitbox.Name = "Hitbox"
+	hitbox.Size = Vector3.new(math.max(boundsSize.X, 1), math.max(boundsSize.Y, 1), math.max(boundsSize.Z, 1))
+	hitbox.CFrame = boundsCFrame
+	hitbox.Transparency = 1
+	hitbox.CanCollide = false
+	hitbox.Anchored = true
+	hitbox.Parent = model
+
+	return model, hitbox
 end
 
 -- ---------- 道具の自動装着 ----------
@@ -260,12 +267,7 @@ local function makeWeed(tierIndex, x, z)
 
 	local template = tier.assetId and ASSET_TEMPLATES[tier.assetId]
 	if template then
-		instanceRoot = placeAssetModel(template, x, z, groundY)
-		promptAnchor = findPromptAnchor(instanceRoot)
-		if not promptAnchor then
-			instanceRoot:Destroy()
-			instanceRoot = nil
-		end
+		instanceRoot, promptAnchor = placeAssetModel(template, x, z, groundY)
 	end
 
 	if not instanceRoot then
