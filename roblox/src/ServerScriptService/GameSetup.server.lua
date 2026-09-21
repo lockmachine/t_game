@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
+local InsertService = game:GetService("InsertService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
@@ -58,6 +59,67 @@ local function getGroundY(x, z)
 		return result.Position.Y
 	end
 	return 0
+end
+
+-- ---------- Creator Store(トイボックス)アセットの読み込み・安全確認 ----------
+-- 無料モデルにScript/LocalScript/ModuleScriptが仕込まれているケース(バックドア等)への
+-- 対策として、読み込んだ直後にそれらを機械的にすべて削除する。1回読み込んだら
+-- サニタイズ済みのテンプレートとして使い回す(毎回読み込み直さない)。
+local ASSET_TEMPLATES = {}
+
+local function loadSanitizedAsset(assetId)
+	local success, result = pcall(function()
+		return InsertService:LoadAsset(assetId)
+	end)
+	if not success then
+		warn("[アセット] " .. tostring(assetId) .. " の読み込みに失敗しました: " .. tostring(result))
+		return nil
+	end
+
+	local removed = 0
+	for _, descendant in ipairs(result:GetDescendants()) do
+		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
+			warn("[セキュリティ] アセット " .. tostring(assetId) .. " 内のスクリプトを検出・削除しました: " .. descendant:GetFullName())
+			descendant:Destroy()
+			removed += 1
+		end
+	end
+	if removed == 0 then
+		print("[アセット] " .. tostring(assetId) .. " を読み込みました。スクリプトは見つかりませんでした。")
+	else
+		warn("[セキュリティ] アセット " .. tostring(assetId) .. " から合計 " .. removed .. " 個のスクリプトを削除しました。見た目に問題がないか確認してください。")
+	end
+	return result
+end
+
+local function preloadAssetsFromTierList(list)
+	for _, entry in ipairs(list) do
+		if entry.assetId and not ASSET_TEMPLATES[entry.assetId] then
+			ASSET_TEMPLATES[entry.assetId] = loadSanitizedAsset(entry.assetId)
+		end
+	end
+end
+
+preloadAssetsFromTierList(GameConfig.WEED_TIERS)
+
+local function placeAssetModel(template, x, z, groundY)
+	local model = template:Clone()
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+		end
+	end
+	model.Parent = Workspace
+	model:MoveTo(Vector3.new(x, groundY, z))
+	return model
+end
+
+local function findPromptAnchor(instance)
+	if instance:IsA("BasePart") then
+		return instance
+	end
+	return instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
 -- ---------- 道具の自動装着 ----------
@@ -193,28 +255,46 @@ end
 local function makeWeed(tierIndex, x, z)
 	local tier = GameConfig.WEED_TIERS[tierIndex]
 	local groundY = getGroundY(x, z)
-	local part = Instance.new("Part")
-	part.Name = "Weed"
-	part.Anchored = true
-	part.CanCollide = false
-	part.Color = tier.color
+	local instanceRoot
+	local promptAnchor
 
-	if tier.shape == "blade" then
-		-- 細長い円柱を垂直に立てて、葉っぱや柱のような見た目にする。
-		part.Shape = Enum.PartType.Cylinder
-		part.Size = Vector3.new(tier.length, tier.diameter, tier.diameter)
-		part.Orientation = Vector3.new(0, 0, 90)
-		part.Position = Vector3.new(x, groundY + tier.length / 2, z)
-	elseif tier.shape == "ball" then
-		part.Shape = Enum.PartType.Ball
-		part.Size = Vector3.new(tier.diameter, tier.diameter, tier.diameter)
-		part.Position = Vector3.new(x, groundY + tier.diameter / 2, z)
-	else -- "block"
-		part.Size = tier.size
-		part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
+	local template = tier.assetId and ASSET_TEMPLATES[tier.assetId]
+	if template then
+		instanceRoot = placeAssetModel(template, x, z, groundY)
+		promptAnchor = findPromptAnchor(instanceRoot)
+		if not promptAnchor then
+			instanceRoot:Destroy()
+			instanceRoot = nil
+		end
 	end
 
-	part.Parent = Workspace
+	if not instanceRoot then
+		-- アセットが無い/読み込めなかった場合は、これまで通り図形で代用する。
+		local part = Instance.new("Part")
+		part.Name = "Weed"
+		part.Anchored = true
+		part.CanCollide = false
+		part.Color = tier.color
+
+		if tier.shape == "blade" then
+			-- 細長い円柱を垂直に立てて、葉っぱや柱のような見た目にする。
+			part.Shape = Enum.PartType.Cylinder
+			part.Size = Vector3.new(tier.length, tier.diameter, tier.diameter)
+			part.Orientation = Vector3.new(0, 0, 90)
+			part.Position = Vector3.new(x, groundY + tier.length / 2, z)
+		elseif tier.shape == "ball" then
+			part.Shape = Enum.PartType.Ball
+			part.Size = Vector3.new(tier.diameter, tier.diameter, tier.diameter)
+			part.Position = Vector3.new(x, groundY + tier.diameter / 2, z)
+		else -- "block"
+			part.Size = tier.size
+			part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
+		end
+
+		part.Parent = Workspace
+		instanceRoot = part
+		promptAnchor = part
+	end
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "ぬく"
@@ -222,7 +302,7 @@ local function makeWeed(tierIndex, x, z)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = part
+	prompt.Parent = promptAnchor
 
 	prompt.Triggered:Connect(function(player)
 		local leaderstats = player:FindFirstChild("leaderstats")
@@ -237,7 +317,7 @@ local function makeWeed(tierIndex, x, z)
 		end
 
 		applyPoints(player, tier.points)
-		part:Destroy()
+		instanceRoot:Destroy()
 		task.delay(RESPAWN_DELAY, spawnWeed)
 	end)
 end
