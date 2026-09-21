@@ -5,8 +5,42 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DataStoreService = game:GetService("DataStoreService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
+
+-- 進捗の保存。Studioでテストする場合は、ゲーム設定の「セキュリティ」タブで
+-- 「Studio内でのAPIサービスへのアクセスを有効にする」をONにしないと保存/読込が失敗する。
+local progressStore = DataStoreService:GetDataStore("ZassouProgress_v1")
+
+local function loadPoints(player)
+	local key = "player_" .. player.UserId
+	local success, data = pcall(function()
+		return progressStore:GetAsync(key)
+	end)
+	if success and data then
+		return data.points or 0
+	end
+	return 0
+end
+
+local function saveProgress(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		return
+	end
+	local points = leaderstats:FindFirstChild("Points")
+	if not points then
+		return
+	end
+	local key = "player_" .. player.UserId
+	local success, err = pcall(function()
+		progressStore:SetAsync(key, { points = points.Value })
+	end)
+	if not success then
+		warn("進捗の保存に失敗しました: " .. tostring(err))
+	end
+end
 
 local showMessage = Instance.new("RemoteEvent")
 showMessage.Name = "ShowMessage"
@@ -34,19 +68,41 @@ local function getGroundY(x, z)
 end
 
 Players.PlayerAdded:Connect(function(player)
+	local savedPoints = loadPoints(player)
+
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
 	leaderstats.Parent = player
 
 	local level = Instance.new("IntValue")
 	level.Name = "Level"
-	level.Value = 1
+	level.Value = GameConfig.computeLevel(savedPoints)
 	level.Parent = leaderstats
 
 	local points = Instance.new("IntValue")
 	points.Name = "Points"
-	points.Value = 0
+	points.Value = savedPoints
 	points.Parent = leaderstats
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	saveProgress(player)
+end)
+
+-- 予期しない切断やStudioの再生停止に備えて、定期的にも保存しておく。
+task.spawn(function()
+	while true do
+		task.wait(90)
+		for _, player in ipairs(Players:GetPlayers()) do
+			saveProgress(player)
+		end
+	end
+end)
+
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		saveProgress(player)
+	end
 end)
 
 local function applyPoints(player, delta)
