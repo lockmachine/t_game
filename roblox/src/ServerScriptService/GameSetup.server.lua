@@ -1,6 +1,7 @@
--- 雑草ぬきゲーム(Roblox版)。ブラウザ版と同じルールを再現している:
--- ポイントを貯めるとレベルが上がり、レベルが足りない雑草は抜けない。
+-- 雑草ぬきゲーム(Roblox版)。
+-- ポイントを貯めるとレベルが上がり、レベルが足りない雑草・道具は使えない。
 -- おはな(抜いてはいけないもの)を抜くとポイントが減り、レベルが下がることもある。
+-- 中身(雑草・抜いてはいけないもの・道具の一覧)はReplicatedStorage/GameConfig.luaにまとめてある。
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -46,14 +47,6 @@ local showMessage = Instance.new("RemoteEvent")
 showMessage.Name = "ShowMessage"
 showMessage.Parent = ReplicatedStorage
 
-local WEED_TIERS = {
-	{ unlockLevel = 1, name = "ちいさい雑草", points = 10, colorName = "Bright green", shape = "blade", length = 1.0, diameter = 0.18 },
-	{ unlockLevel = 2, name = "ふつうの雑草", points = 20, colorName = "Forest green", shape = "ball", diameter = 1.1 },
-	{ unlockLevel = 3, name = "おおきい雑草", points = 35, colorName = "Dark green", shape = "ball", diameter = 1.7 },
-}
-
-local FORBIDDEN_PENALTY = 15
-
 -- Baseplateや地形の高さがどうであっても正しく置けるように、
 -- 上空からレイキャストして実際の地面のY座標を調べる。
 local function getGroundY(x, z)
@@ -65,6 +58,48 @@ local function getGroundY(x, z)
 		return result.Position.Y
 	end
 	return 0
+end
+
+-- ---------- 道具の自動装着 ----------
+local function attachTool(character, tool)
+	local old = character:FindFirstChild("EquippedTool")
+	if old then
+		old:Destroy()
+	end
+
+	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+	if not hand then
+		return
+	end
+
+	local part = Instance.new("Part")
+	part.Name = "EquippedTool"
+	part.Size = tool.size
+	part.Color = tool.color
+	part.Material = Enum.Material.Plastic
+	part.CanCollide = false
+	part.Massless = true
+	part.CFrame = hand.CFrame * CFrame.new(0, -(hand.Size.Y / 2 + tool.size.Y / 2), 0)
+	part.Parent = character
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = hand
+	weld.Part1 = part
+	weld.Parent = part
+end
+
+local function updateEquippedTool(player)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
+	if not levelValue then
+		return
+	end
+	local tool = GameConfig.toolForLevel(levelValue.Value)
+	attachTool(character, tool)
 end
 
 Players.PlayerAdded:Connect(function(player)
@@ -83,6 +118,11 @@ Players.PlayerAdded:Connect(function(player)
 	points.Name = "Points"
 	points.Value = savedPoints
 	points.Parent = leaderstats
+
+	player.CharacterAdded:Connect(function()
+		task.wait(0.5) -- キャラクターの各パーツが揃うのを少し待つ
+		updateEquippedTool(player)
+	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
@@ -123,39 +163,55 @@ local function applyPoints(player, delta)
 
 	if newLevel > beforeLevel then
 		showMessage:FireClient(player, "レベルアップ! Lv." .. newLevel .. " になった!")
+		updateEquippedTool(player)
 	elseif newLevel < beforeLevel then
 		showMessage:FireClient(player, "ポイントが へって Lv." .. newLevel .. " に もどっちゃった…")
+		updateEquippedTool(player)
 	end
 end
 
 local RESPAWN_DELAY = 3.5
-local FIELD_RADIUS = 9
+local FIELD_RADIUS = 14
 local FIELD_DEADZONE = 2.5 -- スポーン地点の近くには生やさない
 
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
 local spawnForbidden
 
+local function highestOnlineLevel()
+	local highest = 1
+	for _, player in ipairs(Players:GetPlayers()) do
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
+		if levelValue and levelValue.Value > highest then
+			highest = levelValue.Value
+		end
+	end
+	return highest
+end
+
 local function makeWeed(tierIndex, x, z)
-	local tier = WEED_TIERS[tierIndex]
+	local tier = GameConfig.WEED_TIERS[tierIndex]
 	local groundY = getGroundY(x, z)
 	local part = Instance.new("Part")
 	part.Name = "Weed"
 	part.Anchored = true
 	part.CanCollide = false
-	part.BrickColor = BrickColor.new(tier.colorName)
-	part.Material = Enum.Material.Grass
+	part.Color = tier.color
 
 	if tier.shape == "blade" then
-		-- 細長い円柱を垂直に立てて、葉っぱのような見た目にする。
+		-- 細長い円柱を垂直に立てて、葉っぱや柱のような見た目にする。
 		part.Shape = Enum.PartType.Cylinder
 		part.Size = Vector3.new(tier.length, tier.diameter, tier.diameter)
 		part.Orientation = Vector3.new(0, 0, 90)
 		part.Position = Vector3.new(x, groundY + tier.length / 2, z)
-	else
+	elseif tier.shape == "ball" then
 		part.Shape = Enum.PartType.Ball
 		part.Size = Vector3.new(tier.diameter, tier.diameter, tier.diameter)
 		part.Position = Vector3.new(x, groundY + tier.diameter / 2, z)
+	else -- "block"
+		part.Size = tier.size
+		part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
 	end
 
 	part.Parent = Workspace
@@ -186,48 +242,78 @@ local function makeWeed(tierIndex, x, z)
 	end)
 end
 
-local function makeForbidden(x, z)
+-- 「抜いてはいけないもの」は柱+上に乗るパーツ(pole)、または単一パーツ(single)で表現する。
+local function makeForbidden(typeIndex, x, z)
+	local spec = GameConfig.FORBIDDEN_TYPES[typeIndex]
 	local groundY = getGroundY(x, z)
-	local stemLength = 0.8
-	local headDiameter = 0.5
+	local parts = {}
 
-	-- 茎(円柱、垂直に立てる)
-	local stem = Instance.new("Part")
-	stem.Name = "ForbiddenStem"
-	stem.Anchored = true
-	stem.CanCollide = false
-	stem.Shape = Enum.PartType.Cylinder
-	stem.Size = Vector3.new(stemLength, 0.06, 0.06)
-	stem.Orientation = Vector3.new(0, 0, 90)
-	stem.Position = Vector3.new(x, groundY + stemLength / 2, z)
-	stem.BrickColor = BrickColor.new("Forest green")
-	stem.Parent = Workspace
+	if spec.kind == "pole" then
+		local pole = Instance.new("Part")
+		pole.Name = "ForbiddenPole"
+		pole.Anchored = true
+		pole.CanCollide = false
+		pole.Shape = Enum.PartType.Cylinder
+		pole.Size = Vector3.new(spec.poleHeight, spec.poleDiameter, spec.poleDiameter)
+		pole.Orientation = Vector3.new(0, 0, 90)
+		pole.Position = Vector3.new(x, groundY + spec.poleHeight / 2, z)
+		pole.Color = spec.poleColor
+		pole.Parent = Workspace
+		table.insert(parts, pole)
 
-	-- 花の頭(光る球体で目立たせる)
-	local head = Instance.new("Part")
-	head.Name = "Forbidden"
-	head.Anchored = true
-	head.CanCollide = false
-	head.Shape = Enum.PartType.Ball
-	head.Size = Vector3.new(headDiameter, headDiameter, headDiameter)
-	head.Position = Vector3.new(x, groundY + stemLength + headDiameter / 2, z)
-	head.BrickColor = BrickColor.new("Bright red")
-	head.Material = Enum.Material.Neon
-	head.Parent = Workspace
+		local topper = Instance.new("Part")
+		topper.Name = "Forbidden"
+		topper.Anchored = true
+		topper.CanCollide = false
+		if spec.topperShape == "ball" then
+			topper.Shape = Enum.PartType.Ball
+		end
+		topper.Size = spec.topperSize
+		topper.Position = Vector3.new(x, groundY + spec.poleHeight + spec.topperSize.Y / 2, z)
+		topper.Color = spec.topperColor
+		if spec.glow then
+			topper.Material = Enum.Material.Neon
+		end
+		topper.Parent = Workspace
+		table.insert(parts, topper)
+	else -- "single"
+		local single = Instance.new("Part")
+		single.Name = "Forbidden"
+		single.Anchored = true
+		single.CanCollide = false
+		if spec.shape == "ball" then
+			single.Shape = Enum.PartType.Ball
+		end
+		single.Size = spec.size
+		single.Position = Vector3.new(x, groundY + spec.size.Y / 2, z)
+		single.Color = spec.color
+		single.Parent = Workspace
+		table.insert(parts, single)
+	end
 
+	local promptPart = parts[#parts]
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "ぬく"
-	prompt.ObjectText = "おはな(ぬいちゃダメ!)"
+	prompt.ObjectText = spec.name .. "(ぬいちゃダメ!)"
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = head
+	prompt.Parent = promptPart
 
 	prompt.Triggered:Connect(function(player)
-		showMessage:FireClient(player, "それはおはな! ぬいちゃダメだよ")
-		applyPoints(player, -FORBIDDEN_PENALTY)
-		stem:Destroy()
-		head:Destroy()
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
+
+		if levelValue and levelValue.Value < spec.unlockLevel then
+			showMessage:FireClient(player, "まだ Lv." .. spec.unlockLevel .. " にならないと、これは反応しないみたい")
+			return
+		end
+
+		showMessage:FireClient(player, "それは" .. spec.name .. "! ぬいちゃダメだよ")
+		applyPoints(player, -spec.penalty)
+		for _, p in ipairs(parts) do
+			p:Destroy()
+		end
 		task.delay(RESPAWN_DELAY, spawnForbidden)
 	end)
 end
@@ -243,33 +329,55 @@ local function randomFieldPosition()
 	return FIELD_RADIUS, FIELD_RADIUS
 end
 
--- 序盤(Lv.1)でも生える雑草を多めにして、レベル2にちゃんと届くようにする。
--- ときどきロック中の大きい雑草も混ぜて、レベルが上がる楽しみを見せておく。
-local function pickTierIndex()
-	local roll = math.random()
-	if roll < 0.6 then
-		return 1
-	elseif roll < 0.85 then
-		return 2
-	else
-		return 3
+-- 序盤でも生える雑草を多めにして、レベルアップがちゃんと体感できるようにする。
+-- 今いるプレイヤーの最高レベルを基準に、ときどき1段上のものも混ぜて見せておく。
+local function pickTierIndex(level)
+	local maxUnlocked = 1
+	for i, tier in ipairs(GameConfig.WEED_TIERS) do
+		if tier.unlockLevel <= level then
+			maxUnlocked = i
+		end
 	end
+	local upper = math.min(maxUnlocked + 1, #GameConfig.WEED_TIERS)
+	local roll = math.random()
+	if roll < 0.18 and upper > maxUnlocked then
+		return upper
+	end
+	return math.random(1, maxUnlocked)
+end
+
+local function pickForbiddenTypeIndex(level)
+	local maxUnlocked = 1
+	for i, spec in ipairs(GameConfig.FORBIDDEN_TYPES) do
+		if spec.unlockLevel <= level then
+			maxUnlocked = i
+		end
+	end
+	local upper = math.min(maxUnlocked + 1, #GameConfig.FORBIDDEN_TYPES)
+	local roll = math.random()
+	if roll < 0.2 and upper > maxUnlocked then
+		return upper
+	end
+	return math.random(1, maxUnlocked)
 end
 
 spawnWeed = function()
-	local tierIndex = pickTierIndex()
+	local level = highestOnlineLevel()
+	local tierIndex = pickTierIndex(level)
 	local x, z = randomFieldPosition()
 	makeWeed(tierIndex, x, z)
 end
 
 spawnForbidden = function()
+	local level = highestOnlineLevel()
+	local typeIndex = pickForbiddenTypeIndex(level)
 	local x, z = randomFieldPosition()
-	makeForbidden(x, z)
+	makeForbidden(typeIndex, x, z)
 end
 
-for _ = 1, 9 do
+for _ = 1, 14 do
 	spawnWeed()
 end
-for _ = 1, 3 do
+for _ = 1, 4 do
 	spawnForbidden()
 end
