@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local InsertService = game:GetService("InsertService")
 local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
@@ -66,6 +67,46 @@ showMessage.Parent = ReplicatedStorage
 local attackRequest = Instance.new("RemoteEvent")
 attackRequest.Name = "AttackRequest"
 attackRequest.Parent = ReplicatedStorage
+
+-- ---------- サウンド ----------
+-- 実際のアセットIDはGameConfig.lua側(BGM_ASSET_ID / DEFAULT_PULL_SFX_ID)で
+-- 指定する。0や未設定の場合は静かにスキップする(エラーにはしない)。
+local function setupBgm()
+	local bgmId = GameConfig.BGM_ASSET_ID
+	if not bgmId or bgmId == 0 then
+		print("[サウンド] BGMのアセットID(GameConfig.BGM_ASSET_ID)が未設定なので再生をスキップします。")
+		return
+	end
+	local bgm = Instance.new("Sound")
+	bgm.Name = "Bgm"
+	bgm.SoundId = "rbxassetid://" .. bgmId
+	bgm.Looped = true
+	bgm.Volume = 0.35
+	bgm.Parent = Workspace
+	bgm:Play()
+end
+setupBgm()
+
+-- 雑草を抜いた瞬間に、プレイヤーのすぐそばで短い効果音を鳴らす。
+-- 抜いた雑草(instanceRoot)はこの直後に消えてしまうので、音は消えない
+-- プレイヤーのキャラクターに付けて再生し、鳴らし終わったら自動で片付ける。
+local function playPullSfx(character, sfxId)
+	sfxId = sfxId or GameConfig.DEFAULT_PULL_SFX_ID
+	if not sfxId or sfxId == 0 then
+		return
+	end
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local sfx = Instance.new("Sound")
+	sfx.Name = "PullSfx"
+	sfx.SoundId = "rbxassetid://" .. sfxId
+	sfx.Volume = 0.6
+	sfx.Parent = root
+	sfx:Play()
+	Debris:AddItem(sfx, 3)
+end
 
 -- Baseplateや地形の高さがどうであっても正しく置けるように、
 -- 上空からレイキャストして実際の地面のY座標を調べる。
@@ -371,28 +412,16 @@ end
 -- 生成された雑草だけ図形のフォールバック見た目のまま固定されてしまう)。
 preloadAssetsFromTierList(GameConfig.WEED_TIERS)
 
--- アセットモデルを置き、当たり判定(ProximityPrompt置き場)として
--- モデル全体を包む透明な箱を別に用意する。モデルの中身がどんな構造でも
--- (パーツが1個でも複数でも、名前が何でも)確実に反応するようにするため。
-local function placeAssetModel(template, x, z, groundY)
-	local model = template:Clone()
-	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = true
-			descendant.CanCollide = false
-		end
-	end
-	model.Parent = Workspace
-	model:MoveTo(Vector3.new(x, groundY, z))
-
-	-- GetBoundingBoxはパーツが無い(不完全な)モデルだとエラーになることがあるため、
-	-- ここで失敗しても他の雑草の生成が止まらないようpcallで守る。
+-- モデル全体を包む透明な箱(当たり判定/Touched置き場)を追加する。モデルの中身が
+-- どんな構造でも(パーツが1個でも複数でも、名前が何でも)確実に反応するようにするため。
+-- GetBoundingBoxはパーツが無い(不完全な)モデルだとエラーになることがあるため、
+-- 失敗しても他の雑草の生成が止まらないようpcallで守る。
+local function attachHitbox(model)
 	local boundsSuccess, boundsCFrame, boundsSize = pcall(function()
 		return model:GetBoundingBox()
 	end)
 	if not boundsSuccess then
-		warn("[アセット] モデルの当たり判定の計算に失敗しました。図形の見た目で代用します: " .. tostring(boundsCFrame))
-		model:Destroy()
+		warn("[見た目] モデルの当たり判定の計算に失敗しました: " .. tostring(boundsCFrame))
 		return nil
 	end
 
@@ -405,13 +434,294 @@ local function placeAssetModel(template, x, z, groundY)
 	hitbox.Anchored = true
 	hitbox.Parent = model
 
+	return hitbox
+end
+
+-- アセットモデルを置く(Creator Storeのモデルを使う雑草のみ)。
+local function placeAssetModel(template, x, z, groundY)
+	local model = template:Clone()
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+		end
+	end
+	model.Parent = Workspace
+	model:MoveTo(Vector3.new(x, groundY, z))
+
+	local hitbox = attachHitbox(model)
+	if not hitbox then
+		warn("[アセット] 当たり判定の計算に失敗したため、図形の見た目で代用します。")
+		model:Destroy()
+		return nil
+	end
+
 	return model, hitbox
 end
 
+-- ---------- Creator Storeのアセットを使わず、複数パーツを組み合わせて
+-- それっぽい見た目を作る(「アセットが面倒」なので、まずは花から工夫する版)。
+-- shape == "ball" は花・茂み、"blade" は草の束、"block" は建物っぽい形にする。
+local function buildFlower(tier, x, z, groundY)
+	local model = Instance.new("Model")
+	model.Name = "Weed"
+
+	local stemHeight = math.max(tier.diameter or 0.5, 0.3) * 1.4
+	local stem = Instance.new("Part")
+	stem.Name = "Stem"
+	stem.Shape = Enum.PartType.Cylinder
+	stem.Size = Vector3.new(stemHeight, 0.07, 0.07)
+	stem.Orientation = Vector3.new(0, 0, 90)
+	stem.Color = Color3.fromRGB(80, 150, 70)
+	stem.Anchored = true
+	stem.CanCollide = false
+	stem.Position = Vector3.new(x, groundY + stemHeight / 2, z)
+	stem.Parent = model
+
+	local headY = groundY + stemHeight
+	local headRadius = math.max(tier.diameter or 0.5, 0.3) * 0.55
+
+	local center = Instance.new("Part")
+	center.Name = "Center"
+	center.Shape = Enum.PartType.Ball
+	center.Size = Vector3.new(headRadius * 0.7, headRadius * 0.7, headRadius * 0.7)
+	center.Color = tier.color
+	center.Anchored = true
+	center.CanCollide = false
+	center.Position = Vector3.new(x, headY, z)
+	center.Parent = model
+
+	local petalColor = tier.color:Lerp(Color3.new(1, 1, 1), 0.3)
+	local petalCount = 6
+	for i = 1, petalCount do
+		local angle = (i / petalCount) * math.pi * 2
+		local petal = Instance.new("Part")
+		petal.Name = "Petal" .. i
+		petal.Shape = Enum.PartType.Ball
+		petal.Size = Vector3.new(headRadius * 0.55, headRadius * 0.3, headRadius * 0.55)
+		petal.Color = petalColor
+		petal.Anchored = true
+		petal.CanCollide = false
+		petal.CFrame = CFrame.new(x, headY, z) * CFrame.Angles(0, angle, 0) * CFrame.new(headRadius * 0.55, 0, 0)
+		petal.Parent = model
+	end
+
+	model.Parent = Workspace
+	local hitbox = attachHitbox(model)
+	return model, hitbox or stem
+end
+
+local function buildGrassTuft(tier, x, z, groundY)
+	local model = Instance.new("Model")
+	model.Name = "Weed"
+
+	local bladeCount = 3
+	for i = 1, bladeCount do
+		local blade = Instance.new("Part")
+		blade.Name = "Blade" .. i
+		blade.Shape = Enum.PartType.Cylinder
+		local length = tier.length * (0.75 + math.random() * 0.5)
+		blade.Size = Vector3.new(length, tier.diameter * 0.6, tier.diameter * 0.6)
+		blade.Color = tier.color
+		blade.Anchored = true
+		blade.CanCollide = false
+		local lean = math.rad((math.random() - 0.5) * 26)
+		local offsetAngle = (i / bladeCount) * math.pi * 2
+		local offsetX = math.cos(offsetAngle) * tier.diameter * 0.5
+		local offsetZ = math.sin(offsetAngle) * tier.diameter * 0.5
+		blade.CFrame = CFrame.new(x + offsetX, groundY + (length / 2) * math.cos(lean), z + offsetZ)
+			* CFrame.Angles(0, 0, math.rad(90) + lean)
+		blade.Parent = model
+	end
+
+	model.Parent = Workspace
+	local hitbox = attachHitbox(model)
+	return model, hitbox or model:FindFirstChildWhichIsA("BasePart")
+end
+
+local function buildBuildingShape(tier, x, z, groundY)
+	local model = Instance.new("Model")
+	model.Name = "Weed"
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = tier.size
+	body.Color = tier.color
+	body.Anchored = true
+	body.CanCollide = false
+	body.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
+	body.Parent = model
+
+	local roof = Instance.new("Part")
+	roof.Name = "Roof"
+	roof.Size = Vector3.new(tier.size.X * 1.05, math.max(tier.size.Y * 0.08, 0.15), tier.size.Z * 1.05)
+	roof.Color = tier.color:Lerp(Color3.new(0, 0, 0), 0.3)
+	roof.Anchored = true
+	roof.CanCollide = false
+	roof.Position = Vector3.new(x, groundY + tier.size.Y + roof.Size.Y / 2, z)
+	roof.Parent = model
+
+	model.Parent = Workspace
+	local hitbox = attachHitbox(model)
+	return model, hitbox or body
+end
+
 local RESPAWN_DELAY = 3.5
-local FIELD_RADIUS = 14
+local FIELD_RADIUS = 45 -- 「広い領域に最初からいっぱい」にするため、これまでより大きく取る
 local FIELD_DEADZONE = 2.5 -- スポーン地点の近くには生やさない
 local MIN_ITEM_SPACING = 3.5 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
+
+-- ---------- 地面を芝生にする ----------
+-- Baseplateなど元々置いてある地面の上に、緑の芝生パーツを重ねて敷く。
+-- 以後のgetGroundYはこの芝生の上面を拾うようになるので、雑草もこの上に生える。
+local function setupGrassGround(radius)
+	local size = radius * 2 + 120 -- 周りの街並みぶんも覆えるように余裕を持たせる
+	local baseGroundY = getGroundY(0, 0)
+	local ground = Instance.new("Part")
+	ground.Name = "GrassGround"
+	ground.Size = Vector3.new(size, 2, size)
+	ground.Position = Vector3.new(0, baseGroundY + 1, 0)
+	ground.Anchored = true
+	ground.CanCollide = true
+	ground.Material = Enum.Material.Grass
+	ground.Color = Color3.fromRGB(86, 158, 74)
+	ground.Parent = Workspace
+end
+setupGrassGround(FIELD_RADIUS)
+
+-- ---------- 街の背景(道路・ビル・車を、歩き回るフィールドの外側に配置する) ----------
+local function buildRoadSegment(cx, cz, length, angleY)
+	local groundY = getGroundY(cx, cz)
+	local road = Instance.new("Part")
+	road.Name = "Road"
+	road.Size = Vector3.new(length, 0.2, 8)
+	road.Color = Color3.fromRGB(60, 60, 65)
+	road.Material = Enum.Material.Asphalt
+	road.Anchored = true
+	road.CanCollide = true
+	road.CFrame = CFrame.new(cx, groundY + 0.11, cz) * CFrame.Angles(0, angleY, 0)
+	road.Parent = Workspace
+
+	local line = Instance.new("Part")
+	line.Name = "RoadLine"
+	line.Size = Vector3.new(length * 0.92, 0.05, 0.3)
+	line.Color = Color3.fromRGB(230, 220, 90)
+	line.Material = Enum.Material.Neon
+	line.Anchored = true
+	line.CanCollide = false
+	line.CFrame = road.CFrame * CFrame.new(0, 0.13, 0)
+	line.Parent = Workspace
+end
+
+local TOWN_BUILDING_COLORS = {
+	Color3.fromRGB(205, 190, 160),
+	Color3.fromRGB(170, 175, 185),
+	Color3.fromRGB(200, 150, 130),
+	Color3.fromRGB(150, 180, 190),
+}
+
+local function buildTownBuilding(x, z)
+	local groundY = getGroundY(x, z)
+	local height = 6 + math.random() * 18
+	local width = 5 + math.random() * 4
+	local depth = 5 + math.random() * 4
+
+	local model = Instance.new("Model")
+	model.Name = "TownBuilding"
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = Vector3.new(width, height, depth)
+	body.Color = TOWN_BUILDING_COLORS[math.random(1, #TOWN_BUILDING_COLORS)]
+	body.Anchored = true
+	body.CanCollide = true
+	body.Position = Vector3.new(x, groundY + height / 2, z)
+	body.Parent = model
+
+	local roof = Instance.new("Part")
+	roof.Name = "Roof"
+	roof.Size = Vector3.new(width * 1.05, 0.4, depth * 1.05)
+	roof.Color = Color3.fromRGB(90, 90, 95)
+	roof.Anchored = true
+	roof.CanCollide = false
+	roof.Position = Vector3.new(x, groundY + height + 0.2, z)
+	roof.Parent = model
+
+	model.Parent = Workspace
+end
+
+local TOWN_CAR_COLORS = {
+	Color3.fromRGB(200, 60, 60),
+	Color3.fromRGB(60, 90, 200),
+	Color3.fromRGB(230, 230, 230),
+	Color3.fromRGB(240, 200, 40),
+}
+
+local function buildParkedCar(x, z, angleY)
+	local groundY = getGroundY(x, z)
+	local model = Instance.new("Model")
+	model.Name = "ParkedCar"
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = Vector3.new(4.2, 1.2, 1.9)
+	body.Color = TOWN_CAR_COLORS[math.random(1, #TOWN_CAR_COLORS)]
+	body.Anchored = true
+	body.CanCollide = true
+	body.CFrame = CFrame.new(x, groundY + 0.6, z) * CFrame.Angles(0, angleY, 0)
+	body.Parent = model
+
+	local cabin = Instance.new("Part")
+	cabin.Name = "Cabin"
+	cabin.Size = Vector3.new(2.2, 0.9, 1.7)
+	cabin.Color = Color3.fromRGB(210, 230, 240)
+	cabin.Transparency = 0.2
+	cabin.Anchored = true
+	cabin.CanCollide = false
+	cabin.CFrame = body.CFrame * CFrame.new(-0.2, 1.0, 0)
+	cabin.Parent = model
+
+	for _, dx in ipairs({ 1.4, -1.4 }) do
+		for _, dz in ipairs({ 0.95, -0.95 }) do
+			local wheel = Instance.new("Part")
+			wheel.Name = "Wheel"
+			wheel.Shape = Enum.PartType.Cylinder
+			wheel.Size = Vector3.new(0.4, 0.7, 0.7)
+			wheel.Color = Color3.fromRGB(25, 25, 25)
+			wheel.Anchored = true
+			wheel.CanCollide = false
+			wheel.CFrame = body.CFrame * CFrame.new(dx, -0.6, dz) * CFrame.Angles(0, 0, math.rad(90))
+			wheel.Parent = model
+		end
+	end
+
+	model.Parent = Workspace
+end
+
+local function buildTownScenery(innerRadius)
+	local ringRadius = innerRadius + 18
+
+	-- 十字に道路を通す(南北・東西)
+	buildRoadSegment(0, 0, ringRadius * 2 + 20, 0)
+	buildRoadSegment(0, 0, ringRadius * 2 + 20, math.rad(90))
+
+	-- 道路の外側にビルを円状に点在させる
+	local buildingCount = 10
+	for i = 1, buildingCount do
+		local angle = (i / buildingCount) * math.pi * 2
+		local dist = ringRadius + 6 + math.random() * 10
+		buildTownBuilding(math.cos(angle) * dist, math.sin(angle) * dist)
+	end
+
+	-- 東西の道路沿いに車を数台停めておく
+	local carCount = 6
+	for i = 1, carCount do
+		local t = (i - 0.5) / carCount
+		local x = -ringRadius + t * ringRadius * 2
+		buildParkedCar(x, 6, 0)
+	end
+end
+buildTownScenery(FIELD_RADIUS)
 
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
@@ -434,18 +744,6 @@ local function unregisterPosition(entry)
 	end
 end
 
-local function highestOnlineLevel()
-	local highest = 1
-	for _, player in ipairs(Players:GetPlayers()) do
-		local leaderstats = player:FindFirstChild("leaderstats")
-		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
-		if levelValue and levelValue.Value > highest then
-			highest = levelValue.Value
-		end
-	end
-	return highest
-end
-
 local function makeWeed(tierIndex, x, z)
 	local tier = GameConfig.WEED_TIERS[tierIndex]
 	local groundY = getGroundY(x, z)
@@ -459,31 +757,15 @@ local function makeWeed(tierIndex, x, z)
 	end
 
 	if not instanceRoot then
-		-- アセットが無い/読み込めなかった場合は、これまで通り図形で代用する。
-		local part = Instance.new("Part")
-		part.Name = "Weed"
-		part.Anchored = true
-		part.CanCollide = false
-		part.Color = tier.color
-
+		-- アセットが無い/読み込めなかった場合は、複数パーツを組み合わせた
+		-- それっぽい見た目(花・草の束・建物)で代用する。
 		if tier.shape == "blade" then
-			-- 細長い円柱を垂直に立てて、葉っぱや柱のような見た目にする。
-			part.Shape = Enum.PartType.Cylinder
-			part.Size = Vector3.new(tier.length, tier.diameter, tier.diameter)
-			part.Orientation = Vector3.new(0, 0, 90)
-			part.Position = Vector3.new(x, groundY + tier.length / 2, z)
+			instanceRoot, promptAnchor = buildGrassTuft(tier, x, z, groundY)
 		elseif tier.shape == "ball" then
-			part.Shape = Enum.PartType.Ball
-			part.Size = Vector3.new(tier.diameter, tier.diameter, tier.diameter)
-			part.Position = Vector3.new(x, groundY + tier.diameter / 2, z)
+			instanceRoot, promptAnchor = buildFlower(tier, x, z, groundY)
 		else -- "block"
-			part.Size = tier.size
-			part.Position = Vector3.new(x, groundY + tier.size.Y / 2, z)
+			instanceRoot, promptAnchor = buildBuildingShape(tier, x, z, groundY)
 		end
-
-		part.Parent = Workspace
-		instanceRoot = part
-		promptAnchor = part
 	end
 
 	-- ボタン操作ではなく、触れるだけで抜ける。連続でTouchedが発火しても
@@ -509,7 +791,7 @@ local function makeWeed(tierIndex, x, z)
 		if levelValue.Value < tier.unlockLevel then
 			if not lockedNotified then
 				lockedNotified = true
-				showMessage:FireClient(player, "まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
+				showMessage:FireClient(player, tier.name .. " は まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
 				task.delay(2, function()
 					lockedNotified = false
 				end)
@@ -520,6 +802,8 @@ local function makeWeed(tierIndex, x, z)
 		pulled = true
 		applyPoints(player, tier.points)
 		addToBouquet(player, 1)
+		playPullSfx(character, tier.sfxId)
+		showMessage:FireClient(player, tier.name .. " を ぬいた! (+" .. tier.points .. "pt)")
 		unregisterPosition(posEntry)
 		instanceRoot:Destroy()
 		task.delay(RESPAWN_DELAY, spawnWeed)
@@ -628,70 +912,39 @@ local function randomFieldPosition()
 	return FIELD_RADIUS, FIELD_RADIUS
 end
 
--- 序盤でも生える雑草を多めにして、レベルアップがちゃんと体感できるようにする。
--- 今いるプレイヤーの最高レベルを基準に、ときどき1段上のものも混ぜて見せておく。
--- assetId(Creator Storeのモデル)が設定されている雑草だけをフィールドに出す。
--- 図形の代用見た目のままの雑草(assetIdが無いもの)は、対応するアセットが
--- 用意されるまでフィールドには生やさない。
-local function pickTierIndex(level)
-	local unlockedWithAsset = {}
-	local nextWithAsset = nil
-	for i, tier in ipairs(GameConfig.WEED_TIERS) do
-		if tier.assetId then
-			if tier.unlockLevel <= level then
-				table.insert(unlockedWithAsset, i)
-			elseif not nextWithAsset then
-				nextWithAsset = i
-			end
-		end
-	end
-
-	if #unlockedWithAsset == 0 then
-		return nextWithAsset -- どのレベルにもアセット付き雑草がまだ無い場合の保険
-	end
-
+-- レベル順に少しずつ出すのではなく、最初から全種類をフィールドに混ぜて出す。
+-- ただしレベルの低い(身近な)雑草の方がよく出るように、二乗した乱数で
+-- インデックスを選ぶ(0に近いほど選ばれやすい=低いレベルの雑草ほど出やすい)。
+-- レベルが足りない雑草も見えている(触っても反応しないだけ)のは、既存の
+-- 「抜いてはいけないもの」と同じ考え方。
+local function pickTierIndex()
+	local total = #GameConfig.WEED_TIERS
 	local roll = math.random()
-	if roll < 0.18 and nextWithAsset then
-		return nextWithAsset
-	end
-	return unlockedWithAsset[math.random(1, #unlockedWithAsset)]
+	local index = math.floor((roll * roll) * total) + 1
+	return math.clamp(index, 1, total)
 end
 
-local function pickForbiddenTypeIndex(level)
-	local maxUnlocked = 1
-	for i, spec in ipairs(GameConfig.FORBIDDEN_TYPES) do
-		if spec.unlockLevel <= level then
-			maxUnlocked = i
-		end
-	end
-	local upper = math.min(maxUnlocked + 1, #GameConfig.FORBIDDEN_TYPES)
-	local roll = math.random()
-	if roll < 0.2 and upper > maxUnlocked then
-		return upper
-	end
-	return math.random(1, maxUnlocked)
+-- おはなも同様に、レベルに関係なく全種類を最初から混ぜて出す。
+local function pickForbiddenTypeIndex()
+	return math.random(1, #GameConfig.FORBIDDEN_TYPES)
 end
 
 spawnWeed = function()
-	local level = highestOnlineLevel()
-	local tierIndex = pickTierIndex(level)
-	if not tierIndex then
-		return -- アセット付きの雑草が1つも無い(想定外の状態)ので何も生やさない
-	end
+	local tierIndex = pickTierIndex()
 	local x, z = randomFieldPosition()
 	makeWeed(tierIndex, x, z)
 end
 
 spawnForbidden = function()
-	local level = highestOnlineLevel()
-	local typeIndex = pickForbiddenTypeIndex(level)
+	local typeIndex = pickForbiddenTypeIndex()
 	local x, z = randomFieldPosition()
 	makeForbidden(typeIndex, x, z)
 end
 
-for _ = 1, 14 do
+-- フィールドが広くなった分、生える数も増やして「広い領域に最初からいっぱい」にする。
+for _ = 1, 60 do
 	spawnWeed()
 end
-for _ = 1, 4 do
+for _ = 1, 14 do
 	spawnForbidden()
 end

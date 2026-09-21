@@ -3,8 +3,10 @@
 
 local GameConfig = {}
 
--- ---------- レベル(1〜32、必要ポイントは二次関数で自動生成) ----------
-local MAX_LEVEL = 32
+-- ---------- レベル(1〜999、必要ポイントは二次関数で自動生成) ----------
+-- 雑草・道具・おはなの種類は32種類までしか無いが、レベル自体はとりあえず999まで
+-- 上がるようにしておく(32を超えたら一番上の雑草・道具のまま、というだけ)。
+local MAX_LEVEL = 999
 GameConfig.LEVELS = {}
 for level = 1, MAX_LEVEL do
 	GameConfig.LEVELS[level] = { level = level, needPoints = 25 * level * (level - 1) }
@@ -129,5 +131,13 @@ function GameConfig.toolForLevel(level)
 	end
 	return best
 end
+
+-- ---------- サウンド ----------
+-- RobloxのCreator Store(オーディオ)で見つけたアセットIDに差し替えて使う。
+-- 0のままだと再生されない(エラーにはならない)。雑草の効果音は、種類ごとに
+-- 変えたい場合はWEED_TIERSの該当エントリに`sfxId = 123456`のように追加すると、
+-- そちらが優先される(無ければこのデフォルトが使われる)。
+GameConfig.BGM_ASSET_ID = 0
+GameConfig.DEFAULT_PULL_SFX_ID = 0
 
 return GameConfig
