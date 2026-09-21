@@ -581,16 +581,21 @@ local function buildBuildingShape(tier, x, z, groundY)
 end
 
 local RESPAWN_DELAY = 3.5
--- 「今の100倍くらいの面積」の要望に合わせて、半径を約10倍(面積は約10^2=100倍)に。
-local FIELD_RADIUS = 450
+-- 「縦横の長さでそれぞれ1/5程度」の要望を受けて、以前(450)の1/5に縮小。
+local FIELD_RADIUS = 90
 local FIELD_DEADZONE = 4 -- スポーン地点の近くには生やさない
 local MIN_ITEM_SPACING = 4 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
 
--- 街をフィールドの外側にはみ出す形まで行き渡らせる(距離ではなく格子状に)。
-local TOWN_MARGIN = 60
+-- 街もフィールドの縮小に合わせて縮小(道路の間隔なども1/5にして、
+-- 同じくらいの密度の街並みが小さいエリアに収まるようにする)。
+local TOWN_MARGIN = 12
 local TOWN_EXTENT = FIELD_RADIUS + TOWN_MARGIN
-local ROAD_SPACING = 90 -- 道路(碁盤の目)の間隔
-local SPAWN_CLEARING = 20 -- スポーン地点(原点)付近には建物を置かない
+local ROAD_SPACING = 18 -- 道路(碁盤の目)の間隔
+local SPAWN_CLEARING = 4 -- スポーン地点(原点)付近には建物を置かない
+
+-- 見えない壁の外側には何も置かないが、芝生(見た目)だけはその外まで広く
+-- 敷いておく。壁のすぐ外がいきなり何もない空間になって不自然に見えないようにするため。
+local GRASS_VISUAL_RADIUS = 450
 
 -- 注意: Workspace.StreamingEnabled はスクリプトから書き込もうとすると
 -- 「lacking capability Plugin」というエラーで止まってしまう(Studio側の設定でしか
@@ -618,7 +623,7 @@ local function setupGrassGround(radius)
 	ground.Parent = Workspace
 	return baseGroundY + 2 -- 芝生の上面のY座標
 end
-local FIELD_GROUND_Y = setupGrassGround(TOWN_EXTENT)
+local FIELD_GROUND_Y = setupGrassGround(GRASS_VISUAL_RADIUS)
 
 -- ---------- 街の背景(道路・ビル・車を碁盤の目状にフィールド全体へ配置する) ----------
 local function buildRoadSegment(cx, cz, length, angleY)
@@ -1093,15 +1098,13 @@ spawnForbidden = function()
 	makeForbidden(typeIndex, x, z)
 end
 
--- 「数が少なすぎる、今の100倍くらいに」との要望を受けて大幅に増やした。
--- ただし面積どおり文字通り100倍(2万本超)にすると、1雑草あたり複数パーツを
--- 使う今の見た目や、街の建物・車のパーツ数と合わせるとスマホでは確実に重くなる
--- ため、以前の約13倍(3000本)に留めている。これでもまだ少なく感じる場合は
--- この数をさらに増やして試してみてほしい。
-for _ = 1, 3000 do
+-- フィールドを1/5(面積では1/25)に縮小したので、以前と同じ密度になるよう
+-- 雑草・おはなの数もおおよそ1/25に減らしてある(3000→120、200→20目安。
+-- おはなは種類(20種)をなるべく見せたいので少し多めにした)。
+for _ = 1, 120 do
 	spawnWeed()
 end
-for _ = 1, 200 do
+for _ = 1, 20 do
 	spawnForbidden()
 end
 
