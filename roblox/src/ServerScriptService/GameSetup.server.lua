@@ -13,14 +13,21 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local InsertService = game:GetService("InsertService")
+local RunService = game:GetService("RunService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
--- 進捗の保存。Studioでテストする場合は、ゲーム設定の「セキュリティ」タブで
--- 「Studio内でのAPIサービスへのアクセスを有効にする」をONにしないと保存/読込が失敗する。
+-- 進捗の保存。Studio上のテスト再生ではDataStoreへのアクセスが許可されておらず、
+-- 毎回エラーになってしまうため、Studio上では保存処理そのものをスキップする
+-- (0ポイントから始まり、保存もされない=テスト用の割り切り)。
+-- 本当に保存されるかどうかはRobloxに公開した本番環境で確認すること。
+local IS_STUDIO = RunService:IsStudio()
 local progressStore = DataStoreService:GetDataStore("ZassouProgress_v1")
 
 local function loadPoints(player)
+	if IS_STUDIO then
+		return 0
+	end
 	local key = "player_" .. player.UserId
 	local success, data = pcall(function()
 		return progressStore:GetAsync(key)
@@ -32,6 +39,9 @@ local function loadPoints(player)
 end
 
 local function saveProgress(player)
+	if IS_STUDIO then
+		return
+	end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then
 		return
@@ -226,8 +236,10 @@ local function preloadAssetsFromTierList(list)
 	end
 end
 
--- 通信を伴うため、他の初期化をブロックしないようバックグラウンドで読み込む。
-task.spawn(preloadAssetsFromTierList, GameConfig.WEED_TIERS)
+-- ここでの読み込み待ち(通信)は、PlayerAddedの接続が既に済んだ後なので安全。
+-- あえて同期的に待ってから雑草を生やし始める(そうしないと、読み込みが終わる前に
+-- 生成された雑草だけ図形のフォールバック見た目のまま固定されてしまう)。
+preloadAssetsFromTierList(GameConfig.WEED_TIERS)
 
 -- アセットモデルを置き、当たり判定(ProximityPrompt置き場)として
 -- モデル全体を包む透明な箱を別に用意する。モデルの中身がどんな構造でも
@@ -259,10 +271,28 @@ end
 local RESPAWN_DELAY = 3.5
 local FIELD_RADIUS = 14
 local FIELD_DEADZONE = 2.5 -- スポーン地点の近くには生やさない
+local MIN_ITEM_SPACING = 3.5 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
 
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
 local spawnForbidden
+
+-- 今フィールドに生えている物の位置一覧。1か所に密集して「ぬく」判定が
+-- 重ならないようにするために使う。
+local activePositions = {}
+
+local function registerPosition(x, z)
+	local entry = { x = x, z = z }
+	table.insert(activePositions, entry)
+	return entry
+end
+
+local function unregisterPosition(entry)
+	local index = table.find(activePositions, entry)
+	if index then
+		table.remove(activePositions, index)
+	end
+end
 
 local function highestOnlineLevel()
 	local highest = 1
@@ -279,6 +309,7 @@ end
 local function makeWeed(tierIndex, x, z)
 	local tier = GameConfig.WEED_TIERS[tierIndex]
 	local groundY = getGroundY(x, z)
+	local posEntry = registerPosition(x, z)
 	local instanceRoot
 	local promptAnchor
 
@@ -319,21 +350,16 @@ local function makeWeed(tierIndex, x, z)
 	prompt.ActionText = "ぬく"
 	prompt.ObjectText = tier.name
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
+	prompt.MaxActivationDistance = 4
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = promptAnchor
 
 	prompt.Triggered:Connect(function(player)
-		print("[デバッグ] " .. tier.name .. " のプロンプトが反応しました。プレイヤー: " .. player.Name)
-
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
 		if not levelValue then
-			warn("[デバッグ] " .. player.Name .. " のleaderstats/Levelが見つからず処理を中断しました")
 			return
 		end
-
-		print("[デバッグ] プレイヤーLv." .. levelValue.Value .. " / 必要Lv." .. tier.unlockLevel)
 
 		if levelValue.Value < tier.unlockLevel then
 			showMessage:FireClient(player, "まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
@@ -341,7 +367,7 @@ local function makeWeed(tierIndex, x, z)
 		end
 
 		applyPoints(player, tier.points)
-		print("[デバッグ] " .. tier.name .. " をぬきました(+" .. tier.points .. "pt)。消去して再生成を予約します。")
+		unregisterPosition(posEntry)
 		instanceRoot:Destroy()
 		task.delay(RESPAWN_DELAY, spawnWeed)
 	end)
@@ -351,6 +377,7 @@ end
 local function makeForbidden(typeIndex, x, z)
 	local spec = GameConfig.FORBIDDEN_TYPES[typeIndex]
 	local groundY = getGroundY(x, z)
+	local posEntry = registerPosition(x, z)
 	local parts = {}
 
 	if spec.kind == "pole" then
@@ -401,7 +428,7 @@ local function makeForbidden(typeIndex, x, z)
 	prompt.ActionText = "ぬく"
 	prompt.ObjectText = spec.name .. "(ぬいちゃダメ!)"
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
+	prompt.MaxActivationDistance = 4
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = promptPart
 
@@ -416,6 +443,7 @@ local function makeForbidden(typeIndex, x, z)
 
 		showMessage:FireClient(player, "それは" .. spec.name .. "! ぬいちゃダメだよ")
 		applyPoints(player, -spec.penalty)
+		unregisterPosition(posEntry)
 		for _, p in ipairs(parts) do
 			p:Destroy()
 		end
@@ -424,11 +452,20 @@ local function makeForbidden(typeIndex, x, z)
 end
 
 local function randomFieldPosition()
-	for _ = 1, 10 do
+	for _ = 1, 20 do
 		local x = (math.random() - 0.5) * 2 * FIELD_RADIUS
 		local z = (math.random() - 0.5) * 2 * FIELD_RADIUS
 		if math.sqrt(x * x + z * z) > FIELD_DEADZONE then
-			return x, z
+			local tooClose = false
+			for _, pos in ipairs(activePositions) do
+				if math.sqrt((pos.x - x) ^ 2 + (pos.z - z) ^ 2) < MIN_ITEM_SPACING then
+					tooClose = true
+					break
+				end
+			end
+			if not tooClose then
+				return x, z
+			end
 		end
 	end
 	return FIELD_RADIUS, FIELD_RADIUS
