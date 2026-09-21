@@ -829,6 +829,34 @@ local function buildTownScenery()
 end
 buildTownScenery()
 
+-- ---------- 見えない壁でワールドの外側を区切る ----------
+-- 普通のゲームでは、作り込んでいる範囲の外に出られないよう、透明な壁や
+-- 柵・山などで移動できる範囲を区切っている。今回も生成した範囲(街の一番外側)の
+-- 外に歩いて出られないよう、見えない壁で囲っておく。
+local function buildBoundaryWalls(extent)
+	local wallHeight = 60
+	local wallThickness = 4
+	local half = extent + 10
+	local span = half * 2 + wallThickness * 2
+
+	local function wall(cx, cz, sizeX, sizeZ)
+		local part = Instance.new("Part")
+		part.Name = "BoundaryWall"
+		part.Size = Vector3.new(sizeX, wallHeight, sizeZ)
+		part.CFrame = CFrame.new(cx, FIELD_GROUND_Y + wallHeight / 2, cz)
+		part.Anchored = true
+		part.CanCollide = true
+		part.Transparency = 1
+		part.Parent = Workspace
+	end
+
+	wall(0, half, span, wallThickness)
+	wall(0, -half, span, wallThickness)
+	wall(half, 0, wallThickness, span)
+	wall(-half, 0, wallThickness, span)
+end
+buildBoundaryWalls(TOWN_EXTENT)
+
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
 local spawnForbidden
