@@ -568,22 +568,25 @@ end
 
 local RESPAWN_DELAY = 3.5
 -- 「今の100倍くらいの面積」の要望に合わせて、半径を約10倍(面積は約10^2=100倍)に。
--- ただしパーツ数を単純に100倍にすると重くなりすぎる(1雑草あたり複数パーツ使う
--- ようになったため)ので、生える数は後述のとおり控えめに増やすだけにしてある。
 local FIELD_RADIUS = 450
 local FIELD_DEADZONE = 4 -- スポーン地点の近くには生やさない
 local MIN_ITEM_SPACING = 4 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
 
--- 街(道路・ビル・車)をフィールドの外側にリング状に何重にも配置する。
-local TOWN_RING_GAP = 45
-local TOWN_RING_COUNT = 4
-local TOWN_FIRST_RING = FIELD_RADIUS + 20
-local TOWN_OUTER_RADIUS = TOWN_FIRST_RING + (TOWN_RING_COUNT - 1) * TOWN_RING_GAP + TOWN_RING_GAP
+-- 街をフィールドの外側にはみ出す形まで行き渡らせる(距離ではなく格子状に)。
+local TOWN_MARGIN = 60
+local TOWN_EXTENT = FIELD_RADIUS + TOWN_MARGIN
+local ROAD_SPACING = 90 -- 道路(碁盤の目)の間隔
+local SPAWN_CLEARING = 20 -- スポーン地点(原点)付近には建物を置かない
+
+-- ワールドがかなり広くなったので、近くだけ描画・シミュレーションするようにしておく
+-- (Robloxの標準機能。スマホでも重くなりすぎないようにするため)。
+Workspace.StreamingEnabled = true
 
 -- ---------- 地面を芝生にする ----------
--- Baseplateなど元々置いてある地面の上に、緑の芝生パーツを重ねて敷く。
--- 以後のgetGroundYはこの芝生の上面を拾うようになるので、雑草もこの上に生える。
--- 街の一番外側のリングまで覆えるサイズにする。
+-- Baseplateなど元々置いてある地面の高さを1回だけ調べ、その上に緑の芝生パーツを敷く。
+-- 以後、フィールド内の高さはすべてこの結果(FIELD_GROUND_Y)を使い回す。毎回
+-- Raycastし直すと、生成したばかりの地面をまだ拾えず雑草が埋まる、といったタイミングの
+-- 問題が起きうるため、そもそも起きないように「芝生の上面は必ずこのYになる」と決め打ちする。
 local function setupGrassGround(radius)
 	local size = radius * 2 + 60
 	local baseGroundY = getGroundY(0, 0)
@@ -596,12 +599,12 @@ local function setupGrassGround(radius)
 	ground.Material = Enum.Material.Grass
 	ground.Color = Color3.fromRGB(86, 158, 74)
 	ground.Parent = Workspace
+	return baseGroundY + 2 -- 芝生の上面のY座標
 end
-setupGrassGround(TOWN_OUTER_RADIUS)
+local FIELD_GROUND_Y = setupGrassGround(TOWN_EXTENT)
 
--- ---------- 街の背景(道路・ビル・車を、歩き回るフィールドの外側に配置する) ----------
+-- ---------- 街の背景(道路・ビル・車を碁盤の目状にフィールド全体へ配置する) ----------
 local function buildRoadSegment(cx, cz, length, angleY)
-	local groundY = getGroundY(cx, cz)
 	local road = Instance.new("Part")
 	road.Name = "Road"
 	road.Size = Vector3.new(length, 0.2, 8)
@@ -609,12 +612,12 @@ local function buildRoadSegment(cx, cz, length, angleY)
 	road.Material = Enum.Material.Asphalt
 	road.Anchored = true
 	road.CanCollide = true
-	road.CFrame = CFrame.new(cx, groundY + 0.11, cz) * CFrame.Angles(0, angleY, 0)
+	road.CFrame = CFrame.new(cx, FIELD_GROUND_Y + 0.11, cz) * CFrame.Angles(0, angleY, 0)
 	road.Parent = Workspace
 
 	local line = Instance.new("Part")
 	line.Name = "RoadLine"
-	line.Size = Vector3.new(length * 0.92, 0.05, 0.3)
+	line.Size = Vector3.new(length * 0.96, 0.05, 0.3)
 	line.Color = Color3.fromRGB(230, 220, 90)
 	line.Material = Enum.Material.Neon
 	line.Anchored = true
@@ -629,9 +632,43 @@ local TOWN_BUILDING_COLORS = {
 	Color3.fromRGB(200, 150, 130),
 	Color3.fromRGB(150, 180, 190),
 }
+local WINDOW_COLOR = Color3.fromRGB(210, 235, 250)
+local DOOR_COLOR = Color3.fromRGB(90, 60, 40)
+
+-- 建物の正面(+Z面)にドアと窓を並べる。建物自体は回転させていないので、
+-- Z面固定のままの単純な座標計算で足りる。
+local function addBuildingDetails(model, x, z, width, height, depth)
+	local door = Instance.new("Part")
+	door.Name = "Door"
+	door.Size = Vector3.new(math.min(1.3, width * 0.3), 2.2, 0.12)
+	door.Color = DOOR_COLOR
+	door.Anchored = true
+	door.CanCollide = false
+	door.Position = Vector3.new(x, FIELD_GROUND_Y + 1.1, z + depth / 2 + 0.07)
+	door.Parent = model
+
+	local floors = math.clamp(math.floor(height / 3.2), 1, 5)
+	local cols = math.clamp(math.floor(width / 1.8), 1, 4)
+	local floorHeight = height / (floors + 1)
+	local colWidth = width / (cols + 1)
+	for floor = 1, floors do
+		local wy = FIELD_GROUND_Y + floor * floorHeight
+		for col = 1, cols do
+			local wx = x - width / 2 + col * colWidth
+			local window = Instance.new("Part")
+			window.Name = "Window"
+			window.Size = Vector3.new(colWidth * 0.55, floorHeight * 0.5, 0.08)
+			window.Color = WINDOW_COLOR
+			window.Material = Enum.Material.Glass
+			window.Anchored = true
+			window.CanCollide = false
+			window.Position = Vector3.new(wx, wy, z + depth / 2 + 0.06)
+			window.Parent = model
+		end
+	end
+end
 
 local function buildTownBuilding(x, z)
-	local groundY = getGroundY(x, z)
 	local height = 6 + math.random() * 18
 	local width = 5 + math.random() * 4
 	local depth = 5 + math.random() * 4
@@ -645,7 +682,7 @@ local function buildTownBuilding(x, z)
 	body.Color = TOWN_BUILDING_COLORS[math.random(1, #TOWN_BUILDING_COLORS)]
 	body.Anchored = true
 	body.CanCollide = true
-	body.Position = Vector3.new(x, groundY + height / 2, z)
+	body.Position = Vector3.new(x, FIELD_GROUND_Y + height / 2, z)
 	body.Parent = model
 
 	local roof = Instance.new("Part")
@@ -654,10 +691,12 @@ local function buildTownBuilding(x, z)
 	roof.Color = Color3.fromRGB(90, 90, 95)
 	roof.Anchored = true
 	roof.CanCollide = false
-	roof.Position = Vector3.new(x, groundY + height + 0.2, z)
+	roof.Position = Vector3.new(x, FIELD_GROUND_Y + height + 0.2, z)
 	roof.Parent = model
 
 	model.Parent = Workspace
+	addBuildingDetails(model, x, z, width, height, depth)
+	return model
 end
 
 local TOWN_CAR_COLORS = {
@@ -667,10 +706,9 @@ local TOWN_CAR_COLORS = {
 	Color3.fromRGB(240, 200, 40),
 }
 
-local function buildParkedCar(x, z, angleY)
-	local groundY = getGroundY(x, z)
+local function buildCarModel(x, z, angleY)
 	local model = Instance.new("Model")
-	model.Name = "ParkedCar"
+	model.Name = "Car"
 
 	local body = Instance.new("Part")
 	body.Name = "Body"
@@ -678,7 +716,7 @@ local function buildParkedCar(x, z, angleY)
 	body.Color = TOWN_CAR_COLORS[math.random(1, #TOWN_CAR_COLORS)]
 	body.Anchored = true
 	body.CanCollide = true
-	body.CFrame = CFrame.new(x, groundY + 0.6, z) * CFrame.Angles(0, angleY, 0)
+	body.CFrame = CFrame.new(x, FIELD_GROUND_Y + 0.6, z) * CFrame.Angles(0, angleY, 0)
 	body.Parent = model
 
 	local cabin = Instance.new("Part")
@@ -705,51 +743,78 @@ local function buildParkedCar(x, z, angleY)
 		end
 	end
 
+	model.PrimaryPart = body
 	model.Parent = Workspace
+	return model
 end
 
--- 正方形の「環状道路」を1本作る(東西南北の4辺)。
-local function buildRoadRing(radius)
-	local length = radius * 2 + 20
-	buildRoadSegment(0, radius, length, 0)
-	buildRoadSegment(0, -radius, length, 0)
-	buildRoadSegment(radius, 0, length, math.rad(90))
-	buildRoadSegment(-radius, 0, length, math.rad(90))
-end
-
--- 環状道路の辺に沿ってビルや車を置くための位置を返す。
-local function pointOnRingSide(radius)
-	local side = math.random(1, 4)
-	local t = (math.random() - 0.5) * (radius * 2)
-	if side == 1 then
-		return t, radius, 0
-	elseif side == 2 then
-		return t, -radius, 0
-	elseif side == 3 then
-		return radius, t, math.rad(90)
-	else
-		return -radius, t, math.rad(90)
-	end
-end
-
--- フィールドの外側に、環状道路を何重にも配置してビル・車を点在させる。
--- 外側のリングほど遠くなる分、広くなったワールドがちゃんと「町」に見えるようにする。
-local function buildTownScenery()
-	for ring = 1, TOWN_RING_COUNT do
-		local ringRadius = TOWN_FIRST_RING + (ring - 1) * TOWN_RING_GAP
-		buildRoadRing(ringRadius)
-
-		local buildingsPerRing = 14
-		for _ = 1, buildingsPerRing do
-			local angle = math.random() * math.pi * 2
-			local dist = ringRadius + 4 + math.random() * (TOWN_RING_GAP * 0.6)
-			buildTownBuilding(math.cos(angle) * dist, math.sin(angle) * dist)
+-- 道路の上を行ったり来たり走らせる。Model:PivotTo でモデルごと動かすので、
+-- 中のパーツがAnchoredのままでも(物理演算を使わなくても)一緒に動く。
+local function animateDrivingCar(model, axis, fixedCoord, halfLength, speed)
+	task.spawn(function()
+		local t = math.random() * math.pi * 2
+		while model.Parent do
+			t += speed * task.wait()
+			local offset = math.sin(t) * halfLength
+			local facingForward = math.cos(t) >= 0
+			local x, z, angle
+			if axis == "x" then
+				x, z = offset, fixedCoord
+				angle = facingForward and 0 or math.pi
+			else
+				x, z = fixedCoord, offset
+				angle = facingForward and math.rad(90) or math.rad(-90)
+			end
+			model:PivotTo(CFrame.new(x, FIELD_GROUND_Y + 0.6, z) * CFrame.Angles(0, angle, 0))
 		end
+	end)
+end
 
-		local carsPerRing = 6
-		for _ = 1, carsPerRing do
-			local x, z, angle = pointOnRingSide(ringRadius)
-			buildParkedCar(x, z, angle)
+-- 碁盤の目状の道路網を通し、区画ごとにビル・駐車中の車を配置し、
+-- 何本かの道路には走る車も出す。フィールドの外側だけでなく全体に行き渡らせる。
+local function buildTownScenery()
+	local half = TOWN_EXTENT
+	local coords = {}
+	local lineCount = math.floor((half * 2) / ROAD_SPACING)
+	for i = 0, lineCount do
+		table.insert(coords, -half + i * ROAD_SPACING)
+	end
+
+	for _, c in ipairs(coords) do
+		buildRoadSegment(0, c, half * 2 + 20, 0)
+		buildRoadSegment(c, 0, half * 2 + 20, math.rad(90))
+	end
+
+	for _, cx in ipairs(coords) do
+		for _, cz in ipairs(coords) do
+			if math.sqrt(cx * cx + cz * cz) > SPAWN_CLEARING then
+				local bx = cx + ROAD_SPACING * 0.5 + (math.random() - 0.5) * (ROAD_SPACING * 0.35)
+				local bz = cz + ROAD_SPACING * 0.5 + (math.random() - 0.5) * (ROAD_SPACING * 0.35)
+				if math.random() < 0.75 then
+					buildTownBuilding(bx, bz)
+				end
+				if math.random() < 0.3 then
+					local angle = ({ 0, math.rad(90), math.pi, math.rad(-90) })[math.random(1, 4)]
+					buildCarModel(bx + 8, bz + 8, angle)
+				end
+			end
+		end
+	end
+
+	local movingCarBudget = 16
+	for _, c in ipairs(coords) do
+		if movingCarBudget <= 0 then
+			break
+		end
+		if math.random() < 0.5 then
+			local car = buildCarModel(0, c, 0)
+			animateDrivingCar(car, "x", c, half, 6 + math.random() * 4)
+			movingCarBudget -= 1
+		end
+		if movingCarBudget > 0 and math.random() < 0.5 then
+			local car2 = buildCarModel(c, 0, math.rad(90))
+			animateDrivingCar(car2, "z", c, half, 6 + math.random() * 4)
+			movingCarBudget -= 1
 		end
 	end
 end
@@ -778,7 +843,7 @@ end
 
 local function makeWeed(tierIndex, x, z)
 	local tier = GameConfig.WEED_TIERS[tierIndex]
-	local groundY = getGroundY(x, z)
+	local groundY = FIELD_GROUND_Y
 	local posEntry = registerPosition(x, z)
 	local instanceRoot
 	local promptAnchor
@@ -849,7 +914,7 @@ end
 -- 「抜いてはいけないもの」は柱+上に乗るパーツ(pole)、または単一パーツ(single)で表現する。
 local function makeForbidden(typeIndex, x, z)
 	local spec = GameConfig.FORBIDDEN_TYPES[typeIndex]
-	local groundY = getGroundY(x, z)
+	local groundY = FIELD_GROUND_Y
 	local posEntry = registerPosition(x, z)
 	local parts = {}
 
@@ -977,12 +1042,15 @@ spawnForbidden = function()
 	makeForbidden(typeIndex, x, z)
 end
 
--- フィールドが広くなった分、生える数も増やす。ただし面積どおり単純に100倍にすると
--- (1雑草あたり複数パーツを使うようになったこともあり)パーツ数が増えすぎて重くなる
--- ため、見つけやすさとのバランスを見て控えめに増やしている。
-for _ = 1, 220 do
+-- 「数が少なすぎる、今の100倍くらいに」との要望を受けて大幅に増やした。
+-- ただし面積どおり文字通り100倍(2万本超)にすると、1雑草あたり複数パーツを
+-- 使う今の見た目や、街の建物・車のパーツ数と合わせるとスマホでは確実に重くなる
+-- ため、以前の約13倍(3000本)に留めている。Workspace.StreamingEnabledを
+-- 有効にしているので、近くのものだけ描画・処理される。これでもまだ少なく感じる
+-- 場合は、この数をさらに増やして試してみてほしい。
+for _ = 1, 3000 do
 	spawnWeed()
 end
-for _ = 1, 40 do
+for _ = 1, 200 do
 	spawnForbidden()
 end

@@ -77,7 +77,7 @@ GameConfig.WEED_TIERS = {
 	{ unlockLevel = 32, name = "電波塔", points = 320, shape = "blade", length = 12, diameter = 0.4, color = Color3.fromRGB(200, 60, 60), assetId = 4567948693 },
 }
 
--- ---------- 抜いてはいけないもの(5レベルごとに新しい種類が「抜けてしまう」ようになる、全10種) ----------
+-- ---------- 抜いてはいけないもの(5レベルごとに新しい種類が「抜けてしまう」ようになる、全20種) ----------
 -- 見た目は最初から全種類が世界に置かれるが、そのレベルに達するまでは
 -- ぬこうとしても反応しない(=誤って抜けてしまうことがない)。
 -- kind: "pole"(柱+上に乗るパーツ) / "single"(単一パーツ)
@@ -108,6 +108,31 @@ GameConfig.FORBIDDEN_TYPES = {
 		shape = "block", size = Vector3.new(1.4, 0.4, 0.5), color = Color3.fromRGB(150, 110, 70) },
 	{ unlockLevel = 45, name = "停めてある自転車", penalty = 105, kind = "single",
 		shape = "block", size = Vector3.new(1.2, 0.7, 0.3), color = Color3.fromRGB(50, 120, 200) },
+	{ unlockLevel = 50, name = "バス停", penalty = 115, kind = "pole",
+		poleHeight = 1.7, poleDiameter = 0.1, poleColor = Color3.fromRGB(90, 90, 95),
+		topperShape = "block", topperSize = Vector3.new(0.9, 0.6, 0.05), topperColor = Color3.fromRGB(230, 230, 230), glow = false },
+	{ unlockLevel = 55, name = "電柱", penalty = 125, kind = "pole",
+		poleHeight = 6, poleDiameter = 0.22, poleColor = Color3.fromRGB(110, 100, 90),
+		topperShape = "block", topperSize = Vector3.new(1.2, 0.15, 0.15), topperColor = Color3.fromRGB(90, 80, 70), glow = false },
+	{ unlockLevel = 60, name = "銅像", penalty = 135, kind = "single",
+		shape = "block", size = Vector3.new(1.2, 3.2, 1.2), color = Color3.fromRGB(90, 130, 110) },
+	{ unlockLevel = 65, name = "噴水", penalty = 145, kind = "single",
+		shape = "ball", size = Vector3.new(2.4, 1.6, 2.4), color = Color3.fromRGB(150, 200, 220) },
+	{ unlockLevel = 70, name = "鉄塔", penalty = 155, kind = "pole",
+		poleHeight = 12, poleDiameter = 0.5, poleColor = Color3.fromRGB(140, 140, 140),
+		topperShape = "block", topperSize = Vector3.new(2, 0.3, 2), topperColor = Color3.fromRGB(120, 120, 120), glow = false },
+	{ unlockLevel = 75, name = "観覧車", penalty = 165, kind = "single",
+		shape = "ball", size = Vector3.new(10, 10, 2), color = Color3.fromRGB(220, 120, 150) },
+	{ unlockLevel = 80, name = "橋脚", penalty = 175, kind = "single",
+		shape = "block", size = Vector3.new(2.5, 9, 2.5), color = Color3.fromRGB(150, 150, 155) },
+	{ unlockLevel = 85, name = "港のクレーン", penalty = 185, kind = "pole",
+		poleHeight = 16, poleDiameter = 0.6, poleColor = Color3.fromRGB(230, 200, 40),
+		topperShape = "block", topperSize = Vector3.new(6, 0.4, 0.4), topperColor = Color3.fromRGB(230, 200, 40), glow = false },
+	{ unlockLevel = 90, name = "飛行機", penalty = 195, kind = "single",
+		shape = "block", size = Vector3.new(14, 3, 12), color = Color3.fromRGB(230, 235, 240) },
+	{ unlockLevel = 95, name = "ロケット", penalty = 205, kind = "pole",
+		poleHeight = 18, poleDiameter = 1.2, poleColor = Color3.fromRGB(240, 240, 240),
+		topperShape = "ball", topperSize = Vector3.new(1.4, 1.4, 1.4), topperColor = Color3.fromRGB(220, 60, 60), glow = false },
 }
 
 -- ---------- 道具(レベルが上がるごとに自動的に手に装着される、全8種) ----------
