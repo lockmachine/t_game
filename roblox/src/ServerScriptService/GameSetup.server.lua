@@ -213,13 +213,27 @@ local function loadSanitizedAsset(assetId)
 	end
 
 	local removed = 0
+	local hasVisiblePart = false
 	for _, descendant in ipairs(result:GetDescendants()) do
 		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
 			warn("[セキュリティ] アセット " .. tostring(assetId) .. " 内のスクリプトを検出・削除しました: " .. descendant:GetFullName())
 			descendant:Destroy()
 			removed += 1
+		elseif descendant:IsA("BasePart") then
+			hasVisiblePart = true
 		end
 	end
+
+	-- 読み込みはできても、中に表示できるパーツが1つも無い(アセットIDが違う種類の
+	-- アセットだった、モデルが壊れている等)場合は使い物にならないので、ここで
+	-- 弾いておく。そうしないと当たり判定(GetBoundingBox)の計算でエラーになり、
+	-- その雑草だけ画面に何も表示されないまま残ってしまう。
+	if not hasVisiblePart then
+		warn("[アセット] " .. tostring(assetId) .. " は読み込めましたが、表示できるパーツが見つかりませんでした。アセットIDが正しいか(Modelとして公開されたアセットか)確認してください。図形の見た目で代用します。")
+		result:Destroy()
+		return nil
+	end
+
 	if removed == 0 then
 		print("[アセット] " .. tostring(assetId) .. " を読み込みました。スクリプトは見つかりませんでした。")
 	else
@@ -255,7 +269,17 @@ local function placeAssetModel(template, x, z, groundY)
 	model.Parent = Workspace
 	model:MoveTo(Vector3.new(x, groundY, z))
 
-	local boundsCFrame, boundsSize = model:GetBoundingBox()
+	-- GetBoundingBoxはパーツが無い(不完全な)モデルだとエラーになることがあるため、
+	-- ここで失敗しても他の雑草の生成が止まらないようpcallで守る。
+	local boundsSuccess, boundsCFrame, boundsSize = pcall(function()
+		return model:GetBoundingBox()
+	end)
+	if not boundsSuccess then
+		warn("[アセット] モデルの当たり判定の計算に失敗しました。図形の見た目で代用します: " .. tostring(boundsCFrame))
+		model:Destroy()
+		return nil
+	end
+
 	local hitbox = Instance.new("Part")
 	hitbox.Name = "Hitbox"
 	hitbox.Size = Vector3.new(math.max(boundsSize.X, 1), math.max(boundsSize.Y, 1), math.max(boundsSize.Z, 1))
