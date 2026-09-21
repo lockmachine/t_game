@@ -307,11 +307,16 @@ local function makeWeed(tierIndex, x, z)
 	prompt.Parent = promptAnchor
 
 	prompt.Triggered:Connect(function(player)
+		print("[デバッグ] " .. tier.name .. " のプロンプトが反応しました。プレイヤー: " .. player.Name)
+
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
 		if not levelValue then
+			warn("[デバッグ] " .. player.Name .. " のleaderstats/Levelが見つからず処理を中断しました")
 			return
 		end
+
+		print("[デバッグ] プレイヤーLv." .. levelValue.Value .. " / 必要Lv." .. tier.unlockLevel)
 
 		if levelValue.Value < tier.unlockLevel then
 			showMessage:FireClient(player, "まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
@@ -319,6 +324,7 @@ local function makeWeed(tierIndex, x, z)
 		end
 
 		applyPoints(player, tier.points)
+		print("[デバッグ] " .. tier.name .. " をぬきました(+" .. tier.points .. "pt)。消去して再生成を予約します。")
 		instanceRoot:Destroy()
 		task.delay(RESPAWN_DELAY, spawnWeed)
 	end)
