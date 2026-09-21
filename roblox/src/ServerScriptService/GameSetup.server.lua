@@ -6,6 +6,8 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
+
 local showMessage = Instance.new("RemoteEvent")
 showMessage.Name = "ShowMessage"
 showMessage.Parent = ReplicatedStorage
@@ -17,22 +19,6 @@ local WEED_TIERS = {
 }
 
 local FORBIDDEN_PENALTY = 15
-
-local LEVELS = {
-	{ level = 1, needPoints = 0 },
-	{ level = 2, needPoints = 50 },
-	{ level = 3, needPoints = 130 },
-}
-
-local function computeLevel(points)
-	local level = 1
-	for _, entry in ipairs(LEVELS) do
-		if points >= entry.needPoints then
-			level = entry.level
-		end
-	end
-	return level
-end
 
 -- Baseplateや地形の高さがどうであっても正しく置けるように、
 -- 上空からレイキャストして実際の地面のY座標を調べる。
@@ -76,7 +62,7 @@ local function applyPoints(player, delta)
 
 	local beforeLevel = levelValue.Value
 	pointsValue.Value = math.max(0, pointsValue.Value + delta)
-	local newLevel = computeLevel(pointsValue.Value)
+	local newLevel = GameConfig.computeLevel(pointsValue.Value)
 	levelValue.Value = newLevel
 
 	if newLevel > beforeLevel then
