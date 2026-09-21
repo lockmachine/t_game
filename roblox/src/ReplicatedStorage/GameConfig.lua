@@ -42,10 +42,10 @@ end
 -- shape: "blade"(細長い柱、垂直に立てる) / "ball"(丸い茂み) / "block"(四角い建造物系)
 GameConfig.WEED_TIERS = {
 	{ unlockLevel = 1, name = "たんぽぽ", points = 10, shape = "blade", length = 0.5, diameter = 0.12, color = Color3.fromRGB(120, 190, 90), assetId = 5342512389 },
-	{ unlockLevel = 2, name = "しろつめくさ", points = 20, shape = "ball", diameter = 0.5, color = Color3.fromRGB(140, 200, 120), assetId = 13589958772 },
-	{ unlockLevel = 3, name = "からすのえんどう", points = 30, shape = "blade", length = 0.6, diameter = 0.12, color = Color3.fromRGB(100, 170, 80), assetId = 8572786983 },
+	{ unlockLevel = 2, name = "しろつめくさ", points = 20, shape = "ball", diameter = 0.5, color = Color3.fromRGB(140, 200, 120), assetId = 9985686401 },
+	{ unlockLevel = 3, name = "からすのえんどう", points = 30, shape = "blade", length = 0.6, diameter = 0.12, color = Color3.fromRGB(100, 170, 80), assetId = 9217406977 },
 	{ unlockLevel = 4, name = "えのころぐさ", points = 40, shape = "blade", length = 0.8, diameter = 0.14, color = Color3.fromRGB(180, 190, 110), assetId = 17070034986 },
-	{ unlockLevel = 5, name = "おおばこ", points = 50, shape = "ball", diameter = 0.6, color = Color3.fromRGB(110, 160, 90), assetId = 109039715180108 },
+	{ unlockLevel = 5, name = "おおばこ", points = 50, shape = "ball", diameter = 0.6, color = Color3.fromRGB(110, 160, 90), assetId = 66411634 },
 	{ unlockLevel = 6, name = "すぎな", points = 60, shape = "blade", length = 0.9, diameter = 0.1, color = Color3.fromRGB(100, 180, 100), assetId = 9634849118 },
 	{ unlockLevel = 7, name = "はこべ", points = 70, shape = "ball", diameter = 0.4, color = Color3.fromRGB(150, 210, 130), assetId = 119978555589075 },
 	{ unlockLevel = 8, name = "かたばみ", points = 80, shape = "ball", diameter = 0.45, color = Color3.fromRGB(120, 190, 100), assetId = 15815013867 },

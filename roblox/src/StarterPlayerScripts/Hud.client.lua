@@ -16,7 +16,7 @@ screenGui.Parent = playerGui
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.Position = UDim2.new(0, 16, 0, 16)
-panel.Size = UDim2.new(0, 220, 0, 66)
+panel.Size = UDim2.new(0, 220, 0, 90)
 panel.BackgroundColor3 = Color3.fromRGB(254, 250, 224)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -75,6 +75,26 @@ fill.Parent = track
 local fillCorner = Instance.new("UICorner")
 fillCorner.CornerRadius = UDim.new(1, 0)
 fillCorner.Parent = fill
+
+local bouquetLabel = Instance.new("TextLabel")
+bouquetLabel.Name = "BouquetLabel"
+bouquetLabel.BackgroundTransparency = 1
+bouquetLabel.Size = UDim2.new(1, -24, 0, 20)
+bouquetLabel.Position = UDim2.new(0, 12, 0, 62)
+bouquetLabel.Text = "🌼 花たば 0本"
+bouquetLabel.Font = Enum.Font.GothamBold
+bouquetLabel.TextSize = 14
+bouquetLabel.TextXAlignment = Enum.TextXAlignment.Left
+bouquetLabel.TextColor3 = Color3.fromRGB(40, 54, 24)
+bouquetLabel.Parent = panel
+
+local function refreshBouquet()
+	local count = player:GetAttribute("BouquetCount") or 0
+	bouquetLabel.Text = "🌼 花たば " .. count .. "本"
+end
+
+player:GetAttributeChangedSignal("BouquetCount"):Connect(refreshBouquet)
+refreshBouquet()
 
 local function refresh()
 	local leaderstats = player:FindFirstChild("leaderstats")

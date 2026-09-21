@@ -63,6 +63,10 @@ local showMessage = Instance.new("RemoteEvent")
 showMessage.Name = "ShowMessage"
 showMessage.Parent = ReplicatedStorage
 
+local attackRequest = Instance.new("RemoteEvent")
+attackRequest.Name = "AttackRequest"
+attackRequest.Parent = ReplicatedStorage
+
 -- Baseplateや地形の高さがどうであっても正しく置けるように、
 -- 上空からレイキャストして実際の地面のY座標を調べる。
 local function getGroundY(x, z)
@@ -118,6 +122,64 @@ local function updateEquippedTool(player)
 	attachTool(character, tool)
 end
 
+-- ---------- 花束(摘んだ花を手に持っていく) ----------
+-- 摘んだ雑草はどんどん花束として蓄積していく。見た目のパーツ数はMAX_VISIBLE_FLOWERSで
+-- 頭打ちにするが、実際の本数(BouquetCount属性)は上限なく増え続け、攻撃のダメージ
+-- 計算に使う。道具は右手に装着するので、花束は左手側に持たせる。
+local MAX_VISIBLE_FLOWERS = 10
+local BOUQUET_FLOWER_COLORS = {
+	Color3.fromRGB(255, 205, 210),
+	Color3.fromRGB(255, 236, 179),
+	Color3.fromRGB(220, 237, 200),
+	Color3.fromRGB(197, 225, 245),
+	Color3.fromRGB(225, 190, 231),
+}
+
+local function updateBouquetVisual(player)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local hand = character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")
+	if not hand then
+		return
+	end
+
+	local holder = character:FindFirstChild("Bouquet")
+	if not holder then
+		holder = Instance.new("Model")
+		holder.Name = "Bouquet"
+		holder.Parent = character
+	end
+
+	local count = player:GetAttribute("BouquetCount") or 0
+	local visibleTarget = math.min(count, MAX_VISIBLE_FLOWERS)
+
+	for i = #holder:GetChildren() + 1, visibleTarget do
+		local flower = Instance.new("Part")
+		flower.Name = "Flower" .. i
+		flower.Shape = Enum.PartType.Ball
+		flower.Size = Vector3.new(0.26, 0.26, 0.26)
+		flower.Color = BOUQUET_FLOWER_COLORS[(i - 1) % #BOUQUET_FLOWER_COLORS + 1]
+		flower.CanCollide = false
+		flower.Massless = true
+		flower.CFrame = hand.CFrame
+			* CFrame.new(math.random(-12, 12) / 100, -(hand.Size.Y / 2) - 0.1 - i * 0.04, math.random(-12, 12) / 100)
+		flower.Parent = holder
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = hand
+		weld.Part1 = flower
+		weld.Parent = flower
+	end
+end
+
+local function addToBouquet(player, amount)
+	local newCount = (player:GetAttribute("BouquetCount") or 0) + amount
+	player:SetAttribute("BouquetCount", newCount)
+	updateBouquetVisual(player)
+end
+
 -- ---------- プレイヤー参加・退出(通信を伴う処理より先に接続する) ----------
 local function onPlayerAdded(player)
 	local savedPoints = loadPoints(player)
@@ -136,9 +198,12 @@ local function onPlayerAdded(player)
 	points.Value = savedPoints
 	points.Parent = leaderstats
 
+	player:SetAttribute("BouquetCount", 0)
+
 	player.CharacterAdded:Connect(function()
 		task.wait(0.5) -- キャラクターの各パーツが揃うのを少し待つ
 		updateEquippedTool(player)
+		updateBouquetVisual(player)
 	end)
 end
 
@@ -194,6 +259,57 @@ local function applyPoints(player, delta)
 		updateEquippedTool(player)
 	end
 end
+
+-- ---------- 花束での攻撃 ----------
+-- 手に持っている花の本数(BouquetCount)が多いほど、叩いたときのダメージが大きくなる。
+-- ただし本数には上限を付けずに際限なく貯められるようにしたいので、ダメージ計算だけ
+-- ATTACK_DAMAGE_FLOWER_CAPで頭打ちにして、一撃で倒しきれてしまわないようにしている。
+local ATTACK_COOLDOWN = 0.6
+local ATTACK_RANGE = 6
+local ATTACK_BASE_DAMAGE = 5
+local ATTACK_DAMAGE_PER_FLOWER = 1
+local ATTACK_DAMAGE_FLOWER_CAP = 40
+local lastAttackAt = {}
+
+Players.PlayerRemoving:Connect(function(player)
+	lastAttackAt[player] = nil
+end)
+
+attackRequest.OnServerEvent:Connect(function(player)
+	local now = os.clock()
+	if lastAttackAt[player] and now - lastAttackAt[player] < ATTACK_COOLDOWN then
+		return
+	end
+	lastAttackAt[player] = now
+
+	local bouquetCount = player:GetAttribute("BouquetCount") or 0
+	if bouquetCount <= 0 then
+		return
+	end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+
+	local damage = ATTACK_BASE_DAMAGE + math.min(bouquetCount, ATTACK_DAMAGE_FLOWER_CAP) * ATTACK_DAMAGE_PER_FLOWER
+
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			local otherCharacter = other.Character
+			local otherRoot = otherCharacter and otherCharacter:FindFirstChild("HumanoidRootPart")
+			local otherHumanoid = otherCharacter and otherCharacter:FindFirstChildWhichIsA("Humanoid")
+			if otherRoot and otherHumanoid and otherHumanoid.Health > 0 then
+				if (otherRoot.Position - root.Position).Magnitude <= ATTACK_RANGE then
+					otherHumanoid:TakeDamage(damage)
+					showMessage:FireClient(other, player.Name .. " の花束(" .. bouquetCount .. "本)に たたかれた! (-" .. damage .. ")")
+					showMessage:FireClient(player, other.Name .. " を たたいた! (" .. damage .. "ダメージ)")
+				end
+			end
+		end
+	end
+end)
 
 -- ---------- Creator Store(トイボックス)アセットの読み込み・安全確認 ----------
 -- 無料モデルにScript/LocalScript/ModuleScriptが仕込まれているケース(バックドア等)への
@@ -370,15 +486,20 @@ local function makeWeed(tierIndex, x, z)
 		promptAnchor = part
 	end
 
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "ぬく"
-	prompt.ObjectText = tier.name
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 4
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = promptAnchor
+	-- ボタン操作ではなく、触れるだけで抜ける。連続でTouchedが発火しても
+	-- 二重に処理しないよう、pulledフラグで1回だけに絞る。
+	local pulled = false
+	local lockedNotified = false
 
-	prompt.Triggered:Connect(function(player)
+	promptAnchor.Touched:Connect(function(hit)
+		if pulled then
+			return
+		end
+		local character = hit.Parent
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player then
+			return
+		end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
 		if not levelValue then
@@ -386,11 +507,19 @@ local function makeWeed(tierIndex, x, z)
 		end
 
 		if levelValue.Value < tier.unlockLevel then
-			showMessage:FireClient(player, "まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
+			if not lockedNotified then
+				lockedNotified = true
+				showMessage:FireClient(player, "まだ Lv." .. tier.unlockLevel .. " にならないと ぬけないよ")
+				task.delay(2, function()
+					lockedNotified = false
+				end)
+			end
 			return
 		end
 
+		pulled = true
 		applyPoints(player, tier.points)
+		addToBouquet(player, 1)
 		unregisterPosition(posEntry)
 		instanceRoot:Destroy()
 		task.delay(RESPAWN_DELAY, spawnWeed)
@@ -447,24 +576,28 @@ local function makeForbidden(typeIndex, x, z)
 		table.insert(parts, single)
 	end
 
+	-- こちらもボタン操作ではなく触れるだけで反応する。うっかり触れてしまう
+	-- ことこそが「抜いてはいけないもの」のリスクなので、あえて何もガードしない。
 	local promptPart = parts[#parts]
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "ぬく"
-	prompt.ObjectText = spec.name .. "(ぬいちゃダメ!)"
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 4
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = promptPart
+	local pulled = false
 
-	prompt.Triggered:Connect(function(player)
+	promptPart.Touched:Connect(function(hit)
+		if pulled then
+			return
+		end
+		local character = hit.Parent
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player then
+			return
+		end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local levelValue = leaderstats and leaderstats:FindFirstChild("Level")
 
 		if levelValue and levelValue.Value < spec.unlockLevel then
-			showMessage:FireClient(player, "まだ Lv." .. spec.unlockLevel .. " にならないと、これは反応しないみたい")
 			return
 		end
 
+		pulled = true
 		showMessage:FireClient(player, "それは" .. spec.name .. "! ぬいちゃダメだよ")
 		applyPoints(player, -spec.penalty)
 		unregisterPosition(posEntry)
