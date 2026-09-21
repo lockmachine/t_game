@@ -1,5 +1,7 @@
--- 今の自分のレベルで抜ける雑草だけ、目障りにならない程度にそっと光らせる。
+-- 今の自分のレベルで抜ける雑草だけ、はっきり分かるように光らせる。
 -- (Highlightは各クライアントのローカル表示のみで、他のプレイヤーには見えない)
+-- 3000本もの雑草の中から探すので、うっすら程度だと埋もれて見えなくなるため、
+-- 目立つ緑色・不透明寄り・AlwaysOnTop(他の物に隠れても透けて見える)にしてある。
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -18,11 +20,11 @@ local function ensureHighlight(model)
 	end
 	local highlight = Instance.new("Highlight")
 	highlight.Name = "PullableHighlight"
-	highlight.FillColor = Color3.fromRGB(255, 246, 200)
-	highlight.FillTransparency = 0.88
-	highlight.OutlineColor = Color3.fromRGB(255, 221, 89)
-	highlight.OutlineTransparency = 0.35
-	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	highlight.FillColor = Color3.fromRGB(110, 255, 130)
+	highlight.FillTransparency = 0.55
+	highlight.OutlineColor = Color3.fromRGB(40, 255, 80)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 	highlight.Parent = model
 end
 

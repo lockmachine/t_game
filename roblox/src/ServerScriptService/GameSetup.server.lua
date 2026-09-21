@@ -753,11 +753,17 @@ end
 
 -- 道路の上を行ったり来たり走らせる。Model:PivotTo でモデルごと動かすので、
 -- 中のパーツがAnchoredのままでも(物理演算を使わなくても)一緒に動く。
-local function animateDrivingCar(model, axis, fixedCoord, halfLength, speed)
+-- sin(t)*halfLengthで位置を作っているため、tを動かす角速度(1秒あたりの
+-- ラジアン数)をそのまま速度として使うと、実際の移動速度はhalfLength倍に
+-- 膨れ上がってしまう(以前のバグ: halfLengthが約510だったため、指定した
+-- つもりの速度の500倍以上で走っていた)。ここでは studsPerSecond(実際の
+-- 移動速度)を受け取り、角速度 = studsPerSecond / halfLength に変換する。
+local function animateDrivingCar(model, axis, fixedCoord, halfLength, studsPerSecond)
+	local angularSpeed = studsPerSecond / halfLength
 	task.spawn(function()
 		local t = math.random() * math.pi * 2
 		while model.Parent do
-			t += speed * task.wait()
+			t += angularSpeed * task.wait()
 			local offset = math.sin(t) * halfLength
 			local facingForward = math.cos(t) >= 0
 			local x, z, angle
@@ -811,12 +817,12 @@ local function buildTownScenery()
 		end
 		if math.random() < 0.5 then
 			local car = buildCarModel(0, c, 0)
-			animateDrivingCar(car, "x", c, half, 6 + math.random() * 4)
+			animateDrivingCar(car, "x", c, half, 24 + math.random() * 12) -- 24〜36スタッド/秒
 			movingCarBudget -= 1
 		end
 		if movingCarBudget > 0 and math.random() < 0.5 then
 			local car2 = buildCarModel(c, 0, math.rad(90))
-			animateDrivingCar(car2, "z", c, half, 6 + math.random() * 4)
+			animateDrivingCar(car2, "z", c, half, 24 + math.random() * 12)
 			movingCarBudget -= 1
 		end
 	end
