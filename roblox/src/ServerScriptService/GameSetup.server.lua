@@ -630,19 +630,31 @@ end
 
 -- 序盤でも生える雑草を多めにして、レベルアップがちゃんと体感できるようにする。
 -- 今いるプレイヤーの最高レベルを基準に、ときどき1段上のものも混ぜて見せておく。
+-- assetId(Creator Storeのモデル)が設定されている雑草だけをフィールドに出す。
+-- 図形の代用見た目のままの雑草(assetIdが無いもの)は、対応するアセットが
+-- 用意されるまでフィールドには生やさない。
 local function pickTierIndex(level)
-	local maxUnlocked = 1
+	local unlockedWithAsset = {}
+	local nextWithAsset = nil
 	for i, tier in ipairs(GameConfig.WEED_TIERS) do
-		if tier.unlockLevel <= level then
-			maxUnlocked = i
+		if tier.assetId then
+			if tier.unlockLevel <= level then
+				table.insert(unlockedWithAsset, i)
+			elseif not nextWithAsset then
+				nextWithAsset = i
+			end
 		end
 	end
-	local upper = math.min(maxUnlocked + 1, #GameConfig.WEED_TIERS)
-	local roll = math.random()
-	if roll < 0.18 and upper > maxUnlocked then
-		return upper
+
+	if #unlockedWithAsset == 0 then
+		return nextWithAsset -- どのレベルにもアセット付き雑草がまだ無い場合の保険
 	end
-	return math.random(1, maxUnlocked)
+
+	local roll = math.random()
+	if roll < 0.18 and nextWithAsset then
+		return nextWithAsset
+	end
+	return unlockedWithAsset[math.random(1, #unlockedWithAsset)]
 end
 
 local function pickForbiddenTypeIndex(level)
@@ -663,6 +675,9 @@ end
 spawnWeed = function()
 	local level = highestOnlineLevel()
 	local tierIndex = pickTierIndex(level)
+	if not tierIndex then
+		return -- アセット付きの雑草が1つも無い(想定外の状態)ので何も生やさない
+	end
 	local x, z = randomFieldPosition()
 	makeWeed(tierIndex, x, z)
 end
