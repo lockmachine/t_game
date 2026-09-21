@@ -2,6 +2,11 @@
 -- ポイントを貯めるとレベルが上がり、レベルが足りない雑草・道具は使えない。
 -- おはな(抜いてはいけないもの)を抜くとポイントが減り、レベルが下がることもある。
 -- 中身(雑草・抜いてはいけないもの・道具の一覧)はReplicatedStorage/GameConfig.luaにまとめてある。
+--
+-- 順番についての注意: Players.PlayerAdded の接続は、通信を伴う処理(DataStore・
+-- アセット読み込みなど)より必ず先に済ませること。先に時間のかかる処理を書くと、
+-- その待ち時間の間にプレイヤーが参加してしまい、参加イベントを取りこぼして
+-- leaderstatsが一生作られない、という不具合が起きる(実際に一度起きた)。
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -61,74 +66,6 @@ local function getGroundY(x, z)
 	return 0
 end
 
--- ---------- Creator Store(トイボックス)アセットの読み込み・安全確認 ----------
--- 無料モデルにScript/LocalScript/ModuleScriptが仕込まれているケース(バックドア等)への
--- 対策として、読み込んだ直後にそれらを機械的にすべて削除する。1回読み込んだら
--- サニタイズ済みのテンプレートとして使い回す(毎回読み込み直さない)。
-local ASSET_TEMPLATES = {}
-
-local function loadSanitizedAsset(assetId)
-	local success, result = pcall(function()
-		return InsertService:LoadAsset(assetId)
-	end)
-	if not success then
-		warn("[アセット] " .. tostring(assetId) .. " の読み込みに失敗しました: " .. tostring(result))
-		return nil
-	end
-
-	local removed = 0
-	for _, descendant in ipairs(result:GetDescendants()) do
-		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
-			warn("[セキュリティ] アセット " .. tostring(assetId) .. " 内のスクリプトを検出・削除しました: " .. descendant:GetFullName())
-			descendant:Destroy()
-			removed += 1
-		end
-	end
-	if removed == 0 then
-		print("[アセット] " .. tostring(assetId) .. " を読み込みました。スクリプトは見つかりませんでした。")
-	else
-		warn("[セキュリティ] アセット " .. tostring(assetId) .. " から合計 " .. removed .. " 個のスクリプトを削除しました。見た目に問題がないか確認してください。")
-	end
-	return result
-end
-
-local function preloadAssetsFromTierList(list)
-	for _, entry in ipairs(list) do
-		if entry.assetId and not ASSET_TEMPLATES[entry.assetId] then
-			ASSET_TEMPLATES[entry.assetId] = loadSanitizedAsset(entry.assetId)
-		end
-	end
-end
-
-preloadAssetsFromTierList(GameConfig.WEED_TIERS)
-
--- アセットモデルを置き、当たり判定(ProximityPrompt置き場)として
--- モデル全体を包む透明な箱を別に用意する。モデルの中身がどんな構造でも
--- (パーツが1個でも複数でも、名前が何でも)確実に反応するようにするため。
-local function placeAssetModel(template, x, z, groundY)
-	local model = template:Clone()
-	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = true
-			descendant.CanCollide = false
-		end
-	end
-	model.Parent = Workspace
-	model:MoveTo(Vector3.new(x, groundY, z))
-
-	local boundsCFrame, boundsSize = model:GetBoundingBox()
-	local hitbox = Instance.new("Part")
-	hitbox.Name = "Hitbox"
-	hitbox.Size = Vector3.new(math.max(boundsSize.X, 1), math.max(boundsSize.Y, 1), math.max(boundsSize.Z, 1))
-	hitbox.CFrame = boundsCFrame
-	hitbox.Transparency = 1
-	hitbox.CanCollide = false
-	hitbox.Anchored = true
-	hitbox.Parent = model
-
-	return model, hitbox
-end
-
 -- ---------- 道具の自動装着 ----------
 local function attachTool(character, tool)
 	local old = character:FindFirstChild("EquippedTool")
@@ -171,7 +108,8 @@ local function updateEquippedTool(player)
 	attachTool(character, tool)
 end
 
-Players.PlayerAdded:Connect(function(player)
+-- ---------- プレイヤー参加・退出(通信を伴う処理より先に接続する) ----------
+local function onPlayerAdded(player)
 	local savedPoints = loadPoints(player)
 
 	local leaderstats = Instance.new("Folder")
@@ -192,7 +130,15 @@ Players.PlayerAdded:Connect(function(player)
 		task.wait(0.5) -- キャラクターの各パーツが揃うのを少し待つ
 		updateEquippedTool(player)
 	end)
-end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+-- このスクリプトが動き出すより前にすでに参加していたプレイヤー(Studioのテスト再生等)
+-- を取りこぼさないための保険。
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(onPlayerAdded, player)
+end
 
 Players.PlayerRemoving:Connect(function(player)
 	saveProgress(player)
@@ -237,6 +183,77 @@ local function applyPoints(player, delta)
 		showMessage:FireClient(player, "ポイントが へって Lv." .. newLevel .. " に もどっちゃった…")
 		updateEquippedTool(player)
 	end
+end
+
+-- ---------- Creator Store(トイボックス)アセットの読み込み・安全確認 ----------
+-- 無料モデルにScript/LocalScript/ModuleScriptが仕込まれているケース(バックドア等)への
+-- 対策として、読み込んだ直後にそれらを機械的にすべて削除する。1回読み込んだら
+-- サニタイズ済みのテンプレートとして使い回す(毎回読み込み直さない)。
+-- ここでの通信待ちがPlayerAddedの接続を遅らせないよう、上のプレイヤー参加処理より
+-- 後ろに書いてあることに注意(このスクリプト内での順番が重要)。
+local ASSET_TEMPLATES = {}
+
+local function loadSanitizedAsset(assetId)
+	local success, result = pcall(function()
+		return InsertService:LoadAsset(assetId)
+	end)
+	if not success then
+		warn("[アセット] " .. tostring(assetId) .. " の読み込みに失敗しました: " .. tostring(result))
+		return nil
+	end
+
+	local removed = 0
+	for _, descendant in ipairs(result:GetDescendants()) do
+		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
+			warn("[セキュリティ] アセット " .. tostring(assetId) .. " 内のスクリプトを検出・削除しました: " .. descendant:GetFullName())
+			descendant:Destroy()
+			removed += 1
+		end
+	end
+	if removed == 0 then
+		print("[アセット] " .. tostring(assetId) .. " を読み込みました。スクリプトは見つかりませんでした。")
+	else
+		warn("[セキュリティ] アセット " .. tostring(assetId) .. " から合計 " .. removed .. " 個のスクリプトを削除しました。見た目に問題がないか確認してください。")
+	end
+	return result
+end
+
+local function preloadAssetsFromTierList(list)
+	for _, entry in ipairs(list) do
+		if entry.assetId and not ASSET_TEMPLATES[entry.assetId] then
+			ASSET_TEMPLATES[entry.assetId] = loadSanitizedAsset(entry.assetId)
+		end
+	end
+end
+
+-- 通信を伴うため、他の初期化をブロックしないようバックグラウンドで読み込む。
+task.spawn(preloadAssetsFromTierList, GameConfig.WEED_TIERS)
+
+-- アセットモデルを置き、当たり判定(ProximityPrompt置き場)として
+-- モデル全体を包む透明な箱を別に用意する。モデルの中身がどんな構造でも
+-- (パーツが1個でも複数でも、名前が何でも)確実に反応するようにするため。
+local function placeAssetModel(template, x, z, groundY)
+	local model = template:Clone()
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+		end
+	end
+	model.Parent = Workspace
+	model:MoveTo(Vector3.new(x, groundY, z))
+
+	local boundsCFrame, boundsSize = model:GetBoundingBox()
+	local hitbox = Instance.new("Part")
+	hitbox.Name = "Hitbox"
+	hitbox.Size = Vector3.new(math.max(boundsSize.X, 1), math.max(boundsSize.Y, 1), math.max(boundsSize.Z, 1))
+	hitbox.CFrame = boundsCFrame
+	hitbox.Transparency = 1
+	hitbox.CanCollide = false
+	hitbox.Anchored = true
+	hitbox.Parent = model
+
+	return model, hitbox
 end
 
 local RESPAWN_DELAY = 3.5
