@@ -163,6 +163,6 @@ end
 -- 変えたい場合はWEED_TIERSの該当エントリに`sfxId = 123456`のように追加すると、
 -- そちらが優先される(無ければこのデフォルトが使われる)。
 GameConfig.BGM_ASSET_ID = 139410493395489
-GameConfig.DEFAULT_PULL_SFX_ID = 0
+GameConfig.DEFAULT_PULL_SFX_ID = 9120259524
 
 return GameConfig
