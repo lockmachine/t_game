@@ -567,15 +567,25 @@ local function buildBuildingShape(tier, x, z, groundY)
 end
 
 local RESPAWN_DELAY = 3.5
-local FIELD_RADIUS = 45 -- 「広い領域に最初からいっぱい」にするため、これまでより大きく取る
-local FIELD_DEADZONE = 2.5 -- スポーン地点の近くには生やさない
-local MIN_ITEM_SPACING = 3.5 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
+-- 「今の100倍くらいの面積」の要望に合わせて、半径を約10倍(面積は約10^2=100倍)に。
+-- ただしパーツ数を単純に100倍にすると重くなりすぎる(1雑草あたり複数パーツ使う
+-- ようになったため)ので、生える数は後述のとおり控えめに増やすだけにしてある。
+local FIELD_RADIUS = 450
+local FIELD_DEADZONE = 4 -- スポーン地点の近くには生やさない
+local MIN_ITEM_SPACING = 4 -- 他の雑草・おはなとこれ以上近くには生やさない(判定の重なり防止)
+
+-- 街(道路・ビル・車)をフィールドの外側にリング状に何重にも配置する。
+local TOWN_RING_GAP = 45
+local TOWN_RING_COUNT = 4
+local TOWN_FIRST_RING = FIELD_RADIUS + 20
+local TOWN_OUTER_RADIUS = TOWN_FIRST_RING + (TOWN_RING_COUNT - 1) * TOWN_RING_GAP + TOWN_RING_GAP
 
 -- ---------- 地面を芝生にする ----------
 -- Baseplateなど元々置いてある地面の上に、緑の芝生パーツを重ねて敷く。
 -- 以後のgetGroundYはこの芝生の上面を拾うようになるので、雑草もこの上に生える。
+-- 街の一番外側のリングまで覆えるサイズにする。
 local function setupGrassGround(radius)
-	local size = radius * 2 + 120 -- 周りの街並みぶんも覆えるように余裕を持たせる
+	local size = radius * 2 + 60
 	local baseGroundY = getGroundY(0, 0)
 	local ground = Instance.new("Part")
 	ground.Name = "GrassGround"
@@ -587,7 +597,7 @@ local function setupGrassGround(radius)
 	ground.Color = Color3.fromRGB(86, 158, 74)
 	ground.Parent = Workspace
 end
-setupGrassGround(FIELD_RADIUS)
+setupGrassGround(TOWN_OUTER_RADIUS)
 
 -- ---------- 街の背景(道路・ビル・車を、歩き回るフィールドの外側に配置する) ----------
 local function buildRoadSegment(cx, cz, length, angleY)
@@ -698,30 +708,52 @@ local function buildParkedCar(x, z, angleY)
 	model.Parent = Workspace
 end
 
-local function buildTownScenery(innerRadius)
-	local ringRadius = innerRadius + 18
+-- 正方形の「環状道路」を1本作る(東西南北の4辺)。
+local function buildRoadRing(radius)
+	local length = radius * 2 + 20
+	buildRoadSegment(0, radius, length, 0)
+	buildRoadSegment(0, -radius, length, 0)
+	buildRoadSegment(radius, 0, length, math.rad(90))
+	buildRoadSegment(-radius, 0, length, math.rad(90))
+end
 
-	-- 十字に道路を通す(南北・東西)
-	buildRoadSegment(0, 0, ringRadius * 2 + 20, 0)
-	buildRoadSegment(0, 0, ringRadius * 2 + 20, math.rad(90))
-
-	-- 道路の外側にビルを円状に点在させる
-	local buildingCount = 10
-	for i = 1, buildingCount do
-		local angle = (i / buildingCount) * math.pi * 2
-		local dist = ringRadius + 6 + math.random() * 10
-		buildTownBuilding(math.cos(angle) * dist, math.sin(angle) * dist)
-	end
-
-	-- 東西の道路沿いに車を数台停めておく
-	local carCount = 6
-	for i = 1, carCount do
-		local t = (i - 0.5) / carCount
-		local x = -ringRadius + t * ringRadius * 2
-		buildParkedCar(x, 6, 0)
+-- 環状道路の辺に沿ってビルや車を置くための位置を返す。
+local function pointOnRingSide(radius)
+	local side = math.random(1, 4)
+	local t = (math.random() - 0.5) * (radius * 2)
+	if side == 1 then
+		return t, radius, 0
+	elseif side == 2 then
+		return t, -radius, 0
+	elseif side == 3 then
+		return radius, t, math.rad(90)
+	else
+		return -radius, t, math.rad(90)
 	end
 end
-buildTownScenery(FIELD_RADIUS)
+
+-- フィールドの外側に、環状道路を何重にも配置してビル・車を点在させる。
+-- 外側のリングほど遠くなる分、広くなったワールドがちゃんと「町」に見えるようにする。
+local function buildTownScenery()
+	for ring = 1, TOWN_RING_COUNT do
+		local ringRadius = TOWN_FIRST_RING + (ring - 1) * TOWN_RING_GAP
+		buildRoadRing(ringRadius)
+
+		local buildingsPerRing = 14
+		for _ = 1, buildingsPerRing do
+			local angle = math.random() * math.pi * 2
+			local dist = ringRadius + 4 + math.random() * (TOWN_RING_GAP * 0.6)
+			buildTownBuilding(math.cos(angle) * dist, math.sin(angle) * dist)
+		end
+
+		local carsPerRing = 6
+		for _ = 1, carsPerRing do
+			local x, z, angle = pointOnRingSide(ringRadius)
+			buildParkedCar(x, z, angle)
+		end
+	end
+end
+buildTownScenery()
 
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
@@ -767,6 +799,10 @@ local function makeWeed(tierIndex, x, z)
 			instanceRoot, promptAnchor = buildBuildingShape(tier, x, z, groundY)
 		end
 	end
+
+	-- クライアント側(PullableHighlight.client.lua)が「今の自分のレベルで
+	-- 抜けるかどうか」を判定するために、必要なレベルを属性として持たせておく。
+	instanceRoot:SetAttribute("UnlockLevel", tier.unlockLevel)
 
 	-- ボタン操作ではなく、触れるだけで抜ける。連続でTouchedが発火しても
 	-- 二重に処理しないよう、pulledフラグで1回だけに絞る。
@@ -941,10 +977,12 @@ spawnForbidden = function()
 	makeForbidden(typeIndex, x, z)
 end
 
--- フィールドが広くなった分、生える数も増やして「広い領域に最初からいっぱい」にする。
-for _ = 1, 60 do
+-- フィールドが広くなった分、生える数も増やす。ただし面積どおり単純に100倍にすると
+-- (1雑草あたり複数パーツを使うようになったこともあり)パーツ数が増えすぎて重くなる
+-- ため、見つけやすさとのバランスを見て控えめに増やしている。
+for _ = 1, 220 do
 	spawnWeed()
 end
-for _ = 1, 14 do
+for _ = 1, 40 do
 	spawnForbidden()
 end

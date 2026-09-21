@@ -137,7 +137,7 @@ end
 -- 0のままだと再生されない(エラーにはならない)。雑草の効果音は、種類ごとに
 -- 変えたい場合はWEED_TIERSの該当エントリに`sfxId = 123456`のように追加すると、
 -- そちらが優先される(無ければこのデフォルトが使われる)。
-GameConfig.BGM_ASSET_ID = 0
+GameConfig.BGM_ASSET_ID = 139410493395489
 GameConfig.DEFAULT_PULL_SFX_ID = 0
 
 return GameConfig
