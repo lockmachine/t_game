@@ -68,6 +68,14 @@ local attackRequest = Instance.new("RemoteEvent")
 attackRequest.Name = "AttackRequest"
 attackRequest.Parent = ReplicatedStorage
 
+-- ワールド生成(地面・街・雑草3000本など)が終わるまで、クライアント側で
+-- ローディング画面を出しておくための合図。スクリプトの一番最後で
+-- worldReady = true にしてから、その時点で参加している全員に送る。
+local worldReadyEvent = Instance.new("RemoteEvent")
+worldReadyEvent.Name = "WorldReady"
+worldReadyEvent.Parent = ReplicatedStorage
+local worldReady = false
+
 -- ---------- サウンド ----------
 -- 実際のアセットIDはGameConfig.lua側(BGM_ASSET_ID / DEFAULT_PULL_SFX_ID)で
 -- 指定する。0や未設定の場合は静かにスキップする(エラーにはしない)。
@@ -223,6 +231,12 @@ end
 
 -- ---------- プレイヤー参加・退出(通信を伴う処理より先に接続する) ----------
 local function onPlayerAdded(player)
+	-- ワールド生成が既に終わっている(=あとから参加した)場合は、
+	-- ローディング画面をすぐに閉じてよいと伝える。
+	if worldReady then
+		worldReadyEvent:FireClient(player)
+	end
+
 	local savedPoints = loadPoints(player)
 
 	local leaderstats = Instance.new("Folder")
@@ -1090,3 +1104,10 @@ end
 for _ = 1, 200 do
 	spawnForbidden()
 end
+
+-- ここまででワールド生成が完了。クライアント側のローディング画面を閉じてよいと伝える。
+worldReady = true
+for _, player in ipairs(Players:GetPlayers()) do
+	worldReadyEvent:FireClient(player)
+end
+print("[ワールド] 生成が完了しました。")
