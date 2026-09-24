@@ -876,6 +876,252 @@ local function buildBoundaryWalls(extent)
 end
 buildBoundaryWalls(TOWN_EXTENT)
 
+-- ---------- ちょうせんステージ ----------
+-- 溜まったポイントを使って、特別なステージに挑戦できる。制限時間内に雑草を
+-- できるだけ多く抜くとボーナスポイントがもらえるが、「抜いてはいけないもの」に
+-- 触れると即座に失敗して終わってしまう(「+1 お金のロール」のような
+-- シミュレーター系ゲームにある「稼ぎ続けるが、失敗すると最初から」という
+-- リスク要素をイメージしたもの)。今のところ一度に挑戦できるのは1人だけ
+-- (複数人が同時に挑戦できるようにするのは今後の拡張)。
+local stageEvent = Instance.new("RemoteEvent")
+stageEvent.Name = "StageEvent"
+stageEvent.Parent = ReplicatedStorage
+
+-- メインの街から完全に切り離すため、はるか上空に作る(歩いては絶対に行けない
+-- 高さなので、ワープでしか出入りできない)。
+local STAGE_CENTER = Vector3.new(0, FIELD_GROUND_Y + 300, 0)
+local STAGE_PLATFORM_RADIUS = 20
+local STAGE_ENTRY_COST = GameConfig.STAGE_ENTRY_COST
+local STAGE_TIME_LIMIT = GameConfig.STAGE_TIME_LIMIT
+
+local stageOccupiedBy = nil -- 今挑戦中のプレイヤー(nilなら空いている)
+local endStage -- spawnStageForbiddenの中から呼べるよう前方宣言しておく
+
+local function buildStagePlatform()
+	local platform = Instance.new("Part")
+	platform.Name = "StagePlatform"
+	platform.Size = Vector3.new(STAGE_PLATFORM_RADIUS * 2, 2, STAGE_PLATFORM_RADIUS * 2)
+	platform.Position = STAGE_CENTER
+	platform.Anchored = true
+	platform.CanCollide = true
+	platform.Material = Enum.Material.Neon
+	platform.Color = Color3.fromRGB(255, 200, 60)
+	platform.Parent = Workspace
+
+	-- 落下防止の見えない壁
+	local wallHeight = 20
+	local half = STAGE_PLATFORM_RADIUS + 2
+	local function wall(cx, cz, sizeX, sizeZ)
+		local part = Instance.new("Part")
+		part.Name = "StageWall"
+		part.Size = Vector3.new(sizeX, wallHeight, sizeZ)
+		part.CFrame = CFrame.new(STAGE_CENTER.X + cx, STAGE_CENTER.Y + wallHeight / 2, STAGE_CENTER.Z + cz)
+		part.Anchored = true
+		part.CanCollide = true
+		part.Transparency = 1
+		part.Parent = Workspace
+	end
+	wall(0, half, half * 2, 4)
+	wall(0, -half, half * 2, 4)
+	wall(half, 0, 4, half * 2)
+	wall(-half, 0, 4, half * 2)
+end
+buildStagePlatform()
+
+local function clearStageObjects()
+	for _, obj in ipairs(Workspace:GetChildren()) do
+		if obj.Name == "StageWeed" or obj.Name == "StageForbidden" then
+			obj:Destroy()
+		end
+	end
+end
+
+local function randomStagePosition()
+	local x = (math.random() - 0.5) * 2 * (STAGE_PLATFORM_RADIUS - 3)
+	local z = (math.random() - 0.5) * 2 * (STAGE_PLATFORM_RADIUS - 3)
+	return STAGE_CENTER.X + x, STAGE_CENTER.Z + z
+end
+
+local function spawnStageWeed()
+	local x, z = randomStagePosition()
+	local part = Instance.new("Part")
+	part.Name = "StageWeed"
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.new(1, 1, 1)
+	part.Color = Color3.fromRGB(255, 220, 90)
+	part.Material = Enum.Material.Neon
+	part.Anchored = true
+	part.CanCollide = false
+	part.Position = Vector3.new(x, STAGE_CENTER.Y + 2, z)
+	part.Parent = Workspace
+
+	local pulled = false
+	part.Touched:Connect(function(hit)
+		if pulled then
+			return
+		end
+		local character = hit.Parent
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player or player ~= stageOccupiedBy then
+			return
+		end
+		pulled = true
+		applyPoints(player, GameConfig.STAGE_WEED_REWARD)
+		stageEvent:FireClient(player, "collect", GameConfig.STAGE_WEED_REWARD)
+		part:Destroy()
+	end)
+end
+
+local function spawnStageForbidden()
+	local x, z = randomStagePosition()
+	local part = Instance.new("Part")
+	part.Name = "StageForbidden"
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.new(1.2, 1.2, 1.2)
+	part.Color = Color3.fromRGB(230, 40, 40)
+	part.Material = Enum.Material.Neon
+	part.Anchored = true
+	part.CanCollide = false
+	part.Position = Vector3.new(x, STAGE_CENTER.Y + 2, z)
+	part.Parent = Workspace
+
+	local triggered = false
+	part.Touched:Connect(function(hit)
+		if triggered then
+			return
+		end
+		local character = hit.Parent
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player or player ~= stageOccupiedBy then
+			return
+		end
+		triggered = true
+		endStage(player, false)
+	end)
+end
+
+local function returnPlayerHome(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		root.CFrame = CFrame.new(0, FIELD_GROUND_Y + 5, 0)
+	end
+end
+
+endStage = function(player, success)
+	if stageOccupiedBy ~= player then
+		return
+	end
+	stageOccupiedBy = nil
+	clearStageObjects()
+	if success then
+		showMessage:FireClient(player, "ステージ クリア! ボーナスをゲットした!")
+	else
+		showMessage:FireClient(player, "ざんねん! 「抜いてはいけないもの」に触れてしまった…")
+	end
+	stageEvent:FireClient(player, "end", success)
+	task.delay(1, function()
+		returnPlayerHome(player)
+	end)
+end
+
+local function tryEnterStage(player)
+	if stageOccupiedBy then
+		showMessage:FireClient(player, "今は他の人が挑戦中だよ。少し待ってね")
+		return
+	end
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local pointsValue = leaderstats and leaderstats:FindFirstChild("Points")
+	if not pointsValue or pointsValue.Value < STAGE_ENTRY_COST then
+		showMessage:FireClient(player, "ステージに入るには " .. STAGE_ENTRY_COST .. "pt 必要だよ")
+		return
+	end
+
+	applyPoints(player, -STAGE_ENTRY_COST)
+	stageOccupiedBy = player
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		root.CFrame = CFrame.new(STAGE_CENTER.X, STAGE_CENTER.Y + 5, STAGE_CENTER.Z)
+	end
+
+	for _ = 1, GameConfig.STAGE_WEED_COUNT do
+		spawnStageWeed()
+	end
+	for _ = 1, GameConfig.STAGE_FORBIDDEN_COUNT do
+		spawnStageForbidden()
+	end
+
+	stageEvent:FireClient(player, "start", STAGE_TIME_LIMIT)
+
+	task.spawn(function()
+		local remaining = STAGE_TIME_LIMIT
+		while remaining > 0 and stageOccupiedBy == player do
+			task.wait(1)
+			remaining -= 1
+			stageEvent:FireClient(player, "tick", remaining)
+		end
+		if stageOccupiedBy == player then
+			endStage(player, true)
+		end
+	end)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	if stageOccupiedBy == player then
+		stageOccupiedBy = nil
+		clearStageObjects()
+	end
+end)
+
+-- スポーン地点の近くに、ステージへの入り口を置く。
+local function buildStageGate()
+	local gate = Instance.new("Part")
+	gate.Name = "StageGate"
+	gate.Size = Vector3.new(4, 6, 1)
+	gate.Position = Vector3.new(0, FIELD_GROUND_Y + 3, -10)
+	gate.Anchored = true
+	gate.CanCollide = false
+	gate.Material = Enum.Material.Neon
+	gate.Color = Color3.fromRGB(255, 180, 40)
+	gate.Parent = Workspace
+
+	local label = Instance.new("BillboardGui")
+	label.Size = UDim2.new(0, 220, 0, 50)
+	label.StudsOffset = Vector3.new(0, 4, 0)
+	label.AlwaysOnTop = true
+	label.Parent = gate
+
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.new(1, 0, 1, 0)
+	text.BackgroundTransparency = 1
+	text.Text = "ちょうせんステージ\n(" .. STAGE_ENTRY_COST .. "pt)"
+	text.TextColor3 = Color3.fromRGB(255, 255, 255)
+	text.Font = Enum.Font.GothamBold
+	text.TextSize = 18
+	text.TextStrokeTransparency = 0.3
+	text.Parent = label
+
+	local entered = {} -- 連続でTouchedが飛ぶのを防ぐデバウンス
+	gate.Touched:Connect(function(hit)
+		local character = hit.Parent
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player then
+			return
+		end
+		if entered[player] then
+			return
+		end
+		entered[player] = true
+		task.delay(1, function()
+			entered[player] = nil
+		end)
+		tryEnterStage(player)
+	end)
+end
+buildStageGate()
+
 -- 前方宣言。makeWeed/makeForbiddenの中(抜いた後)から呼べるようにしておく。
 local spawnWeed
 local spawnForbidden

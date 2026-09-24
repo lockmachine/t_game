@@ -165,4 +165,15 @@ end
 GameConfig.BGM_ASSET_ID = 139410493395489
 GameConfig.DEFAULT_PULL_SFX_ID = 9120259524
 
+-- ---------- ちょうせんステージ ----------
+-- 溜まったポイントを使って挑戦できる特別なステージ。制限時間内に雑草を
+-- できるだけ多く抜くとボーナスポイントがもらえるが、「抜いてはいけないもの」に
+-- 触れると即座に失敗して終わる(参考にしたシミュレーター系ゲームの「稼ぎ続けるが、
+-- 失敗すると最初から」というリスク要素をイメージしたもの)。
+GameConfig.STAGE_ENTRY_COST = 100
+GameConfig.STAGE_TIME_LIMIT = 30
+GameConfig.STAGE_WEED_COUNT = 15
+GameConfig.STAGE_FORBIDDEN_COUNT = 5
+GameConfig.STAGE_WEED_REWARD = 20
+
 return GameConfig
